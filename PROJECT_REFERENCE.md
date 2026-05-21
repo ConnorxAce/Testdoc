@@ -25,7 +25,7 @@
 
 ```
 project2/
-├── server.py              # Primary Python/Flask backend (~8967 lines) (ACTIVE)
+├── server.py              # Primary Python/Flask backend (~8951 lines) (ACTIVE)
 ├── server.js              # Legacy Node.js/Express backend (DEPRECATED)
 ├── run_server.py          # Launcher script for Python server
 │
@@ -101,10 +101,10 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Core orchestration (~8967 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
+| `server.py` | Core orchestration (~8951 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
 | `server.js` | Legacy backend | Deprecated Node.js implementation |
 | `utils/helpers.py` | Formatting/validation (~68 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
-| `utils/file_helpers.py` | File/device-state helpers (~202 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache` |
+| `utils/file_helpers.py` | File/device-state/test-log helpers (~215 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache`, `save_test_log` |
 | `parsers/output_parsers.py` | Output parsers (~385 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
 | `services/show_version_cache.py` | Show version cache + device runner (~209 lines) | `load/save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output`, `run_show_version_on_device` |
 | `services/diff_engine.py` | Config diff + job helpers (~953 lines) | `build_line_index`, `run_external_diff`, `parse_unified_diff`, `create_scalable_job`, `cleanup_job`, `create_job_db`, `generate_csv_rows` |
@@ -979,14 +979,14 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~8967 lines)
+**File:** `server.py` (~8951 lines)
 
 #### Imports from Extracted Modules
 
 | Module | Imported Names |
 |--------|---------------|
 | `utils.helpers` | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
-| `utils.file_helpers` | `parse_inventory_file`, `get_cache_status`, `get_device_state_path`, `load_device_state`, `save_device_state`, `get_device_info_from_cache` |
+| `utils.file_helpers` | `parse_inventory_file`, `get_cache_status`, `get_device_state_path`, `load_device_state`, `save_device_state`, `get_device_info_from_cache`, `save_test_log` |
 | `parsers.output_parsers` | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail`, `extract_trailing_context` |
 | `services.show_version_cache` | `get_show_version_cache_path`, `load_show_version_cache`, `save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output`, `run_show_version_on_device` |
 | `services.diff_engine` | `TMP_DIFF_FOLDER`, `get_job_dir`, `build_line_index`, `extract_config_to_file`, `run_external_diff`, `run_difflib_diff`, `parse_unified_diff`, `save_hunks_to_json`, `load_hunks_from_json`, `read_lines_range`, `create_scalable_job`, `get_scalable_job_metadata`, `get_scalable_job_hunks`, `get_scalable_job_content`, `generate_csv_rows`, `create_job_db`, `get_job_db`, `store_diff_rows`, `fetch_diff_range`, `find_next_diff`, `cleanup_job`, `cleanup_old_jobs` |
@@ -997,26 +997,25 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | Lines | Module/Region | Purpose |
 |-------|---------------|---------|
 | 1-36 | Imports | Standard library + Flask + external libs |
-| 36-133 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
-| 134-181 | Configuration | `get_secret_key()`, `CredentialError`, PROJECT_ROOT derived |
-| 182-313 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
-| 314-398 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
-| 399-617 | Device Collection | `collect_single_device()` (single device with step tracking) |
-| 618-634 | Test Logging | `save_test_log()` (writes to `SESSION_LOGS_FOLDER`) |
-| 635-713 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
-| 714-795 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
-| 796-1139 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
-| 1140-1255 | Root Route + Credentials | `/` → serves index.html; `/api/credentials` POST/clear; cancel routes |
-| 1256-2073 | API Route Handlers | `/api/backups/list`, `/api/backups/config`, `/api/backups/compare-configs`, `/api/backups/compare-configs-job` (route-only; helpers in `services/diff_engine.py`) |
-| 2074-2300 | Scalable Diff Route Handlers | `/api/backups/compare-job` POST/GET hunks/content, DELETE, export.csv, download-config (logic in `services/diff_engine.py`) |
-| 2301-3176 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
-| 3177-3881 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
-| 3882-4398 | Show Version Subsystem | `api_get_cached_show_version`, `api_collect_show_version`, `api_show_version_cache_missing`, `api_generate_show_version_csv`, `api_get_show_version_inventory` (`run_show_version_on_device` in `services/show_version_cache.py`) |
-| 4399-7838 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
-| 7839-8109 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
-| 8110-8251 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare`, `/deploy`, `/configure`, audit-index endpoints |
-| 8252-8665 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read`, `/scheduler-status`, `/base-status` |
-| 8666-8966 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
+| 36-134 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
+| 135-182 | Configuration | `get_secret_key()`, `CredentialError`, PROJECT_ROOT derived |
+| 183-314 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
+| 315-399 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
+| 400-618 | Device Collection | `collect_single_device()` (single device with step tracking) |
+| 619-697 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
+| 698-779 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
+| 780-1123 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
+| 1124-1239 | Root Route + Credentials | `/` → serves index.html; `/api/credentials` POST/clear; cancel routes |
+| 1240-2057 | API Route Handlers | `/api/backups/list`, `/api/backups/config`, `/api/backups/compare-configs`, `/api/backups/compare-configs-job` (route-only; helpers in `services/diff_engine.py`) |
+| 2058-2284 | Scalable Diff Route Handlers | `/api/backups/compare-job` POST/GET hunks/content, DELETE, export.csv, download-config (logic in `services/diff_engine.py`) |
+| 2285-3160 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
+| 3161-3865 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
+| 3866-4382 | Show Version Subsystem | `api_get_cached_show_version`, `api_collect_show_version`, `api_show_version_cache_missing`, `api_generate_show_version_csv`, `api_get_show_version_inventory` (`run_show_version_on_device` in `services/show_version_cache.py`) |
+| 4383-7822 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
+| 7823-8093 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
+| 8094-8235 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare`, `/deploy`, `/configure`, audit-index endpoints |
+| 8236-8649 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read`, `/scheduler-status`, `/base-status` |
+| 8650-8950 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
 
 ### 6.2 app/web/templates/index.html
 
@@ -1409,7 +1408,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.10 utils/file_helpers.py
 
-**File:** `utils/file_helpers.py` (~202 lines)
+**File:** `utils/file_helpers.py` (~215 lines)
 
 #### Functions
 
@@ -1421,8 +1420,9 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `load_device_state(hostname)` | Reads device state JSON, returns dict with failover/preferred_role |
 | `save_device_state(hostname, data)` | Writes device state dict to JSON file |
 | `get_device_info_from_cache(hostname)` | Reads full cached device data from `data/collected_devices/` |
+| `save_test_log(log_entry)` | Writes test log JSON entry to `data/session_logs/` with timestamp-hostname-test_type filename |
 
-**Dependencies:** `json`, `Path` from `pathlib`
+**Dependencies:** `json`, `datetime`, `Path` from `pathlib`
 **Path convention:** Uses `Path(__file__).resolve().parent.parent / "data" / ...` (module-local computation)
 **Imported by:** `server.py`
 
