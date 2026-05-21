@@ -86,14 +86,14 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Primary backend (~11096 lines) | All API routes, SSH device connections, session management |
+| `server.py` | Primary backend (~9927 lines) | All API routes, SSH device connections, session management |
 | `server.js` | Legacy backend | Deprecated Node.js implementation |
 | `run_server.py` | Launcher | Checks prerequisites, installs deps, starts server |
 | `app/web/static/js/app.js` | Core frontend (~2584 lines) | Navigation, credentials save, device collection, ping/packet-tracer/route/NAT tests |
 | `app/web/static/js/firewall_backups.js` | Backup comparison (~2700 lines) | Archive listing, config file browsing, diff comparison, virtual scrolling |
 | `app/web/static/js/global_rules.js` | ACL generation (~733 lines) | Normal/URL rule generation with deduplication |
 | `app/web/static/js/show_version.js` | Version collection (~326 lines) | Show version fetch, display, CSV export |
-| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (Phase 1) (~1632 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
+| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (Phase 1) (~1528 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
 | `app/web/templates/index.html` | Main UI (~1415 lines) | All page sections with DOM IDs |
 | `app/web/static/css/styles.css` | Styling (~333 lines) | Dark theme, terminal styles, diff highlighting |
 
@@ -307,7 +307,8 @@ Browser Session                    server.py
 | `/api/firewall-rules-auto/audit-index/scan` | POST | `{basePath}` | `{status, folders_scanned, new_entries, errors}` | Manually trigger a full re-scan of all backup folders |
 | `/api/firewall-rules-auto/audit-index/devices` | GET | `?basePath` | `{status, devices: [{deviceName, count}]}` | Distinct device names with counts for filter dropdown |
 | `/api/firewall-rules-auto/audit-index/categories` | GET | - | `{status, categories: [{category, label}]}` | Static category list for filter dropdown |
-| `/api/firewall-rules-auto/report/download` | POST | `{basePath, metrics: [...], chartTypes: {...}, dateFrom?, dateTo?, tagFilter?}` | Excel `.xlsx` download (with headers `X-Report-Skipped-Lines`, `X-Report-Warning`) | `firewall_rules_auto.js:generateReport()` — generates Excel report from `stats.log` + `Deploystats.txt` with native openpyxl charts |
+| `/api/firewall-rules-auto/report/scan-stats` | GET | `?basePath` | `{availableDates, dateMin, dateMax, availableMetrics, hasPrepareData, hasDeployData, hasAnyData, statsEntryCount, deployEntryCount}` | `firewall_rules_auto.js:loadStatsInfo()` — returns parsed file metadata so frontend can dynamically configure metric checkboxes and date limits |
+| `/api/firewall-rules-auto/report/download` | POST | `{basePath, metrics: [...], chartTypes: {...}, dateFrom?, dateTo?, tagFilter?}` | Excel `.xlsx` download (with headers `X-Report-Skipped-Lines`, `X-Report-Warning`) | `firewall_rules_auto.js:generateReport()` — generates 3-sheet executive dashboard report from `stats.log` + `Deploystats.txt` with native openpyxl charts |
 
 ### 3.6.1 Stats File Formats
 
@@ -373,6 +374,8 @@ Rejected total: N
 ===== YYYY-MM-DD =====
 [YYYY-MM-DD HH:MM:SS] tag=manual basePath=<base_path> success=N partial=N failed=N errors=N skipped=N
 <snapshot of latest_deploy_results.log contents>
+hostname (ip): status (lines succeeded: N, failed: N)
+hostname (ip): status (lines succeeded: N, failed: N)
 ```
 
 **`Prepare_Rules/logs/DeployAuthLogs.log`** (append-only, two lines per deploy job):
@@ -955,7 +958,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~11096 lines)
+**File:** `server.py` (~9927 lines)
 
 #### Major Regions
 
@@ -1227,7 +1230,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.7 app/web/static/js/firewall_rules_auto.js
 
-**File:** `app/web/static/js/firewall_rules_auto.js` (~1632 lines)
+**File:** `app/web/static/js/firewall_rules_auto.js` (~1528 lines)
 
 #### Top-Level Responsibilities
 - Manage base path input with localStorage persistence (read on load if server has no path; written on change/save)
@@ -1279,14 +1282,15 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `#fra-results-content` | write | Results/log display |
 | `#fra-report-btn` | click | Toggle report configuration panel |
 | `#fra-report-config` | visibility | Inline expandable report config panel (d-none) |
-| `#fra-report-metrics` | read (checkboxes) | Metric selection checkboxes (7 pre-defined metrics) |
-| `#fra-report-chart-type` | read | Chart type selector (Bar/Pie/Line, auto-filtered by metric compat) |
+| `#fra-report-metrics` | read (checkboxes) | Metric selection checkboxes (7 metrics: accepted, rejected, success, partial, failed, errors, skipped) |
+| `#fra-report-chart-type` | read | Chart type selector (Bar/Pie/Doughnut/Line, auto-filtered by metric compat) |
 | `#fra-report-date-from` | read | Start date input (date type) |
 | `#fra-report-date-to` | read | End date input (date type) |
 | `#fra-report-tag-filter` | read | stats.log tag filter dropdown (all/manual_prepare/scheduled_prepare/...) |
 | `#fra-report-generate-btn` | click | Generate and download report |
 | `#fra-report-status` | write | Report status alert |
 | `#fra-report-skipped` | write | Malformed lines skipped count display |
+| `#fra-report-stats-status` | write | Stats summary text from scan-stats backend (available dates, metric presence) |
 
 #### Key Functions
 
@@ -1327,15 +1331,16 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `catLabel(cat)` | Map internal category string to display label |
 | `toggleReportConfig()` | Toggle the inline report configuration panel visibility |
 | `updateCompatibleChartTypes()` | Auto-filter chart type dropdown based on selected metrics (intersection of compatible types) |
-| `generateReport()` | Gather metric/chart/date/tag selections, POST to `/api/firewall-rules-auto/report/download`, handle blob download, display skipped-line count from `X-Report-Skipped-Lines` header |
+| `generateReport()` | Gather metric/chart/date/tag selections, POST to `/api/firewall-rules-auto/report/download`, handle blob download, display skipped-line count from `X-Report-Skipped-Lines` header and backend warnings from `X-Report-Warning` header |
 | `showReportStatus(msg, isError)` | Show report status alert in `#fra-report-status` |
 | `showReportSkipped(count)` | Show malformed line count in `#fra-report-skipped` |
+| `loadStatsInfo()` | GET `/api/firewall-rules-auto/report/scan-stats`, update date min/max, enable/disable metric checkboxes based on available data, show stats summary in `#fra-report-stats-status` |
 
 **UI Elements:** `#fra-base-path` (input), `#fra-base-status-badge`, `#fra-rollover-status-badge`, `#fra-schedule-time` (time input), `#fra-prepare-status-badge`, `#fra-prepare-time` (time input), `#fra-date-folder` (select), `#fra-status` (alert).
 
 **Audit Index View DOM IDs:** `#fra-view-toggle` (toggle button group), `#fra-view-browse-btn` / `#fra-view-index-btn` (mode buttons), `#fra-view-browse-body` / `#fra-view-index-body` (mode containers), `#fra-index-category` (category filter), `#fra-index-device` (device filter), `#fra-index-date-from` / `#fra-index-date-to` (date range), `#fra-index-search` (free-text search), `#fra-index-filter-btn` (apply filters), `#fra-index-count` (total count), `#fra-index-refresh-btn` (refresh), `#fra-index-scan-btn` (re-scan), `#fra-index-table` / `#fra-index-tbody` (results table), `#fra-index-page-info` (page indicator), `#fra-index-prev-btn` / `#fra-index-next-btn` (pagination).
 
-**Report Config DOM IDs:** `#fra-report-btn` (action row toggle), `#fra-report-config` (inline panel), `#fra-report-metrics` (7 metric checkboxes), `#fra-report-chart-type` (auto-filtered chart type), `#fra-report-date-from` / `#fra-report-date-to` (date range), `#fra-report-tag-filter` (stats.log tag), `#fra-report-generate-btn`, `#fra-report-status` (alert), `#fra-report-skipped` (malformed line count).
+**Report Config DOM IDs:** `#fra-report-btn` (action row toggle), `#fra-report-config` (inline panel), `#fra-report-metrics` (7 metric checkboxes), `#fra-report-chart-type` (auto-filtered chart type), `#fra-report-date-from` / `#fra-report-date-to` (date range), `#fra-report-tag-filter` (stats.log tag), `#fra-report-generate-btn`, `#fra-report-status` (alert), `#fra-report-skipped` (malformed line count), `#fra-report-stats-status` (stats summary).
 
 **Base Path Status Badge:** `#fra-base-status-badge` shows core folder status. Checks folder existence only (no file content required). Runs on tab load. States: `all core files detected` (green), `MISSING: Prepare_Rules\Output, Prepare_Rules\Backup, ChangePrepBackup` (red) listing only the missing folders, `ERROR: <message>` (red) on access/permission issues.
 
@@ -1609,7 +1614,7 @@ Review this document when:
 | 2026-05-01 | Cancel/Stop functionality: added JOBS_REGISTRY with thread-safe helpers; 3 cancel endpoints (data-collection, firewall-inventory, path-finder); cancel checks in all SSH endpoints (collect-single-device, failover-check, run-ping, run-packet-tracer, run-show-route, run-show-nat); cache/log writes skipped on cancel; frontend tabInstanceId, stopDataCollection/stopFirewallInventory/stopPathFinder handlers; executePingTest/PacketTracerTest/ShowRouteTest/ShowNatTest refactored with AbortController + Run/Stop button toggles; show_version.js cancel support with AbortController on per-device/batch/refresh operations; Stop button visibility hooked to setCollectRunning/setFwCollectRunning | `server.py`, `app.js`, `show_version.js`, `index.html`, `docs/PROJECT_REFERENCE.md` | `/api/data-collection/cancel`, `/api/firewall-inventory/cancel`, `/api/path-finder/cancel`, `/api/collect-single-device`, `/api/failover-check`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat`, `/api/show-version-collect` | `#dc-stop-btn`, `#fw-inventory-stop-btn`, `#ping-src-stop-btn`, `#ping-dst-stop-btn`, `#pt-src-stop-btn`, `#pt-dst-stop-btn`, `#showroute-src-stop-btn`, `#showroute-dst-stop-btn`, `#shownat-src-stop-btn`, `#shownat-dst-stop-btn` |
 | 2026-05-20 | Doc accuracy audit — corrected file counts and line numbers: server.py (~7100→~8300), app.js (~2500→~2584), index.html (~1105→~1241), firewall_rules_auto.js (~350→~1082), styles.css (~390→~333), show_version.js (~285→~326); added missing files to repo tree (FirewallDeploy_inventory.txt, test_myers_diff.html, Firewall_Rules_Auto_User_Guide.md, FRA_REPORTS_LOGVIEWER_REFERENCE.md); updated misc/ directory listing; rewrote server.py Section 6.1 line-number table to match actual code; updated File Inventory Summary with line counts | `docs/PROJECT_REFERENCE.md` | None (doc-only changes) | None |
 | 2026-05-20 | Audit log indexing: added persistent SQLite index for historical prepare_audit.log files under Prepare_Rules/Backup; 5 new API endpoints (audit-index/stats, entries, scan, devices, categories); startup scan + scheduler-tick incremental scan; 180-day configurable retention; enhanced Log Viewer with Audit Index toggle, paginated table (500 rows/page), category/device/date/search filters, auto-refresh polling | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/audit-index/stats`, `/api/firewall-rules-auto/audit-index/entries`, `/api/firewall-rules-auto/audit-index/scan`, `/api/firewall-rules-auto/audit-index/devices`, `/api/firewall-rules-auto/audit-index/categories`, `/api/firewall-rules-auto/configure` (extended), `/api/firewall-rules-auto/config` (extended) | `#fra-view-toggle`, `#fra-view-browse-btn`, `#fra-view-index-btn`, `#fra-view-browse-body`, `#fra-view-index-body`, `#fra-index-category`, `#fra-index-device`, `#fra-index-date-from`, `#fra-index-date-to`, `#fra-index-search`, `#fra-index-filter-btn`, `#fra-index-count`, `#fra-index-refresh-btn`, `#fra-index-scan-btn`, `#fra-index-table`, `#fra-index-tbody`, `#fra-index-page-info`, `#fra-index-prev-btn`, `#fra-index-next-btn` |
-| 2026-05-20 | Report feature: added Excel report generation from stats.log + Deploystats.txt via openpyxl; 7 pre-defined metrics with native Excel charts (Bar/Pie/Line); inline config panel with metric/chart/date/tag filters; Sheet 1 (Overview + charts) + Sheet 2 (daily aggregation + device results); synchronous download with malformed-line reporting | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/report/download` | `#fra-report-btn`, `#fra-report-config`, `#fra-report-metrics`, `#fra-report-chart-type`, `#fra-report-date-from`, `#fra-report-date-to`, `#fra-report-tag-filter`, `#fra-report-generate-btn`, `#fra-report-status`, `#fra-report-skipped` |
+| 2026-05-20 | Report feature: added Excel report generation from stats.log + Deploystats.txt via openpyxl; 7 pre-defined metrics with native Excel charts (Bar/Pie/Line/Doughnut); executive dashboard layout (navy title banner, 4 KPI cards, 2-column chart grid, heatmap, executive insights); 3 sheets (Overview, Chart Formula hidden, Detailed with freeze panes/autofilter); inline config panel with dynamic metric checkbox enable/disable via scan-stats endpoint; synchronous download with malformed-line reporting and backend warnings | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/report/download`, `/api/firewall-rules-auto/report/scan-stats` | `#fra-report-btn`, `#fra-report-config`, `#fra-report-metrics`, `#fra-report-chart-type`, `#fra-report-date-from`, `#fra-report-date-to`, `#fra-report-tag-filter`, `#fra-report-generate-btn`, `#fra-report-status`, `#fra-report-skipped`, `#fra-report-stats-status` |
 
 ### Scheduler Behavior
 
