@@ -25,9 +25,23 @@
 
 ```
 project2/
-├── server.py              # Primary Python/Flask backend (ACTIVE)
+├── server.py              # Primary Python/Flask backend (~9981 lines) (ACTIVE)
 ├── server.js              # Legacy Node.js/Express backend (DEPRECATED)
 ├── run_server.py          # Launcher script for Python server
+│
+├── utils/
+│   ├── __init__.py
+│   ├── helpers.py           # Formatting/validation helpers
+│   └── file_helpers.py      # Device state & cache helpers
+├── parsers/
+│   ├── __init__.py
+│   └── output_parsers.py    # Show route/ip/version/fxos output parsers
+├── services/
+│   ├── __init__.py
+│   └── show_version_cache.py # Show version cache CRUD & extraction
+├── ssh/
+│   ├── __init__.py
+│   └── client.py            # SSH connections, jumpbox pool, command execution
 │
 ├── app/
 │   └── web/
@@ -86,8 +100,13 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Primary backend (~9927 lines) | All API routes, SSH device connections, session management |
+| `server.py` | Core orchestration (~9981 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
 | `server.js` | Legacy backend | Deprecated Node.js implementation |
+| `utils/helpers.py` | Formatting/validation (~68 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
+| `utils/file_helpers.py` | File/device-state helpers (~202 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache` |
+| `parsers/output_parsers.py` | Output parsers (~385 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
+| `services/show_version_cache.py` | Show version cache (~105 lines) | `load/save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output` |
+| `ssh/client.py` | SSH & jumpbox layer (~831 lines) | `connect_via_jumpbox`, `JumpboxSessionManager`, `run_commands_on_device`, `run_failover_check_on_device` |
 | `run_server.py` | Launcher | Checks prerequisites, installs deps, starts server |
 | `app/web/static/js/app.js` | Core frontend (~2584 lines) | Navigation, credentials save, device collection, ping/packet-tracer/route/NAT tests |
 | `app/web/static/js/firewall_backups.js` | Backup comparison (~2700 lines) | Archive listing, config file browsing, diff comparison, virtual scrolling |
