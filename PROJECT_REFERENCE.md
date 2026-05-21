@@ -25,7 +25,7 @@
 
 ```
 project2/
-├── server.py              # Primary Python/Flask backend (~9981 lines) (ACTIVE)
+├── server.py              # Primary Python/Flask backend (~9262 lines) (ACTIVE)
 ├── server.js              # Legacy Node.js/Express backend (DEPRECATED)
 ├── run_server.py          # Launcher script for Python server
 │
@@ -38,7 +38,8 @@ project2/
 │   └── output_parsers.py    # Show route/ip/version/fxos output parsers
 ├── services/
 │   ├── __init__.py
-│   └── show_version_cache.py # Show version cache CRUD & extraction
+│   ├── show_version_cache.py # Show version cache CRUD & extraction
+│   └── diff_engine.py         # Scalable config diff engine (byte-offset index, git-diff, CSV export)
 ├── ssh/
 │   ├── __init__.py
 │   └── client.py            # SSH connections, jumpbox pool, command execution
@@ -100,12 +101,13 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Core orchestration (~9981 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
+| `server.py` | Core orchestration (~9262 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
 | `server.js` | Legacy backend | Deprecated Node.js implementation |
 | `utils/helpers.py` | Formatting/validation (~68 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
 | `utils/file_helpers.py` | File/device-state helpers (~202 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache` |
 | `parsers/output_parsers.py` | Output parsers (~385 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
 | `services/show_version_cache.py` | Show version cache (~105 lines) | `load/save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output` |
+| `services/diff_engine.py` | Config diff engine (~748 lines) | `build_line_index`, `run_external_diff`, `parse_unified_diff`, `create_scalable_job`, `get_scalable_job_content`, `generate_csv_rows` |
 | `ssh/client.py` | SSH & jumpbox layer (~831 lines) | `connect_via_jumpbox`, `JumpboxSessionManager`, `run_commands_on_device`, `run_failover_check_on_device` |
 | `run_server.py` | Launcher | Checks prerequisites, installs deps, starts server |
 | `app/web/static/js/app.js` | Core frontend (~2584 lines) | Navigation, credentials save, device collection, ping/packet-tracer/route/NAT tests |
@@ -977,7 +979,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~9981 lines)
+**File:** `server.py` (~9262 lines)
 
 #### Imports from Extracted Modules
 
@@ -987,6 +989,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | `utils.file_helpers` | `parse_inventory_file`, `get_cache_status`, `get_device_state_path`, `load_device_state`, `save_device_state`, `get_device_info_from_cache` |
 | `parsers.output_parsers` | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail`, `extract_trailing_context` |
 | `services.show_version_cache` | `get_show_version_cache_path`, `load_show_version_cache`, `save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output` |
+| `services.diff_engine` | `TMP_DIFF_FOLDER`, `get_job_dir`, `build_line_index`, `extract_config_to_file`, `run_external_diff`, `run_difflib_diff`, `parse_unified_diff`, `save_hunks_to_json`, `load_hunks_from_json`, `read_lines_range`, `create_scalable_job`, `get_scalable_job_metadata`, `get_scalable_job_hunks`, `get_scalable_job_content`, `generate_csv_rows` |
 | `ssh.client` | `connect_via_jumpbox`, `connect_to_device_via_jumpbox`, `connect_to_device_via_jumpbox_shell`, `JumpboxSessionManager`, `run_commands_on_device`, `execute_command_wait_prompt`, `execute_single_command`, `run_failover_check_on_device`, `parse_failover_state` |
 
 #### Major Regions
@@ -994,27 +997,26 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | Lines | Module/Region | Purpose |
 |-------|---------------|---------|
 | 1-36 | Imports | Standard library + Flask + external libs |
-| 36-111 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
-| 112-159 | Configuration | `get_secret_key()`, `CredentialError`, PROJECT_ROOT derived |
-| 160-291 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
-| 292-376 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
-| 377-595 | Device Collection | `collect_single_device()` (single device with step tracking) |
-| 596-691 | Test Logging | `save_test_log()` (writes to `SESSION_LOGS_FOLDER`) |
-| 613-691 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
-| 692-773 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
-| 774-1121 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
-| 1122-2040 | API Route Handlers | `/` (index), `/api/credentials`, `/api/backups/*`, `/api/data-collection/cancel`, etc. |
-| 2041-2255 | Compare Job DB Helpers | `create_job_db()`, `store_diff_rows()`, `fetch_diff_range()`, `cleanup_old_jobs()` (SQLite-based legacy) |
-| 2256-3205 | Scalable Diff Infrastructure | `build_line_index()`, `extract_config_to_file()`, `run_external_diff()`, `run_difflib_diff()`, `parse_unified_diff()`, compare-job routes |
-| 3206-4087 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
-| 4088-4792 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
-| 4793-5403 | Show Version Subsystem | `run_show_version_on_device()`, routes: `/api/show-version/<hostname>`, `/api/show-version-collect`, `/api/show-version-cache-missing`, `/api/generate-show-version-csv`, `/api/show-version-inventory` |
-| 5404-8830 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
-| 8830-9105 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
-| 9106-9400 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare` |
-| 9401-9675 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read` |
-| 9676-9760 | FRA Status Routes | `/api/firewall-rules-auto/scheduler-status`, `/base-status` |
-| 9761-9941 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
+| 36-125 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
+| 126-173 | Configuration | `get_secret_key()`, `CredentialError`, PROJECT_ROOT derived |
+| 174-305 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
+| 306-390 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
+| 391-609 | Device Collection | `collect_single_device()` (single device with step tracking) |
+| 610-626 | Test Logging | `save_test_log()` (writes to `SESSION_LOGS_FOLDER`) |
+| 627-705 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
+| 706-787 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
+| 788-1247 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
+| 1248-2061 | API Route Handlers | `/` (index), `/api/credentials`, `/api/backups/*`, `/api/data-collection/cancel`, etc. |
+| 2062-2265 | Compare Job DB Helpers | `create_job_db()`, `store_diff_rows()`, `fetch_diff_range()`, `cleanup_old_jobs()` (SQLite-based legacy) |
+| 2266-2492 | Scalable Diff Route Handlers | `/api/backups/compare-job` POST/GET hunks/content, `/api/backups/compare-job/<job_id>/export.csv`, DELETE, download-config (logic in `services/diff_engine.py`) |
+| 2493-3368 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
+| 3369-4084 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
+| 4085-4693 | Show Version Subsystem | `run_show_version_on_device()`, routes: `/api/show-version/<hostname>`, `/api/show-version-collect`, `/api/show-version-cache-missing`, `/api/generate-show-version-csv`, `/api/show-version-inventory` |
+| 4694-8133 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
+| 8134-8404 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
+| 8405-8546 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare` |
+| 8547-8960 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read`, `/scheduler-status`, `/base-status` |
+| 8961-9261 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
 
 ### 6.2 app/web/templates/index.html
 
@@ -1490,6 +1492,38 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 **Dependencies:** `paramiko`, `time`, `re`, `Path`, `clean_command_output` (from `utils.helpers`)
 **Imported by:** `server.py`
+
+### 6.14 services/diff_engine.py
+
+**File:** `services/diff_engine.py` (~748 lines)
+
+#### Module-Level Exports
+
+| Name | Type | Purpose |
+|------|------|---------|
+| `TMP_DIFF_FOLDER` | `Path` | Module-local `data/tmp_diff/` directory (same object shared with `server.py`) |
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `get_job_dir(job_id)` | Returns `TMP_DIFF_FOLDER / job_id` — used by both scalable diff and legacy SQLite compare |
+| `build_line_index(file_path)` | Builds byte-offset index `[{offset, length}]` for random-access line reads |
+| `extract_config_to_file(ssh_client, archive_path, internal_path, output_file)` | Streams tar.gz extraction from remote archive via SSH + `tar -xOzf`; raises if output is empty |
+| `run_external_diff(left_path, right_path)` | Runs `git diff --no-index --unified=0`; for files >50MB requires git, <50MB falls back to difflib |
+| `run_difflib_diff(left_path, right_path)` | Fallback diff using `difflib.SequenceMatcher` with 100k-line memory limit per side |
+| `parse_unified_diff(diff_output)` | Parses `git diff --unified=0` output into hunk dicts `{leftStart, leftEnd, rightStart, rightEnd, type, lines}` |
+| `save_hunks_to_json(hunks, file_path)` | Serializes hunk list to JSON file |
+| `load_hunks_from_json(file_path)` | Loads hunk list from JSON file |
+| `read_lines_range(file_path, start_line, limit, line_index)` | Reads line range efficiently using byte-offset index (or sequential fallback) |
+| `create_scalable_job(job_id, left_archive, left_path, right_archive, right_path, ssh_client)` | Full pipeline: create job dir, extract configs, build indices, run diff, save hunks + metadata |
+| `get_scalable_job_metadata(job_id)` | Loads `metadata.json` for a job |
+| `get_scalable_job_hunks(job_id)` | Loads `hunks.json` for a job |
+| `get_scalable_job_content(job_id, side, start_line, limit)` | Returns formatted line range with error handling for missing/corrupt indices |
+| `generate_csv_rows(job_id, include_equal, hunk_id)` | Generator yielding aligned CSV rows by walking left/right files with hunk span awareness |
+
+**Dependencies:** `json`, `logging`, `os`, `re`, `shlex`, `subprocess`, `time`, `pathlib.Path`, `difflib`
+**Imported by:** `server.py` (also exports `TMP_DIFF_FOLDER` and `get_job_dir` used by legacy `cleanup_job`/`cleanup_old_jobs`)
 
 ---
 
