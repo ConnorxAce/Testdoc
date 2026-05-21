@@ -1,6 +1,6 @@
 # Firewall Path Tracer — Project Reference (Living Document)
 
-> **Last Updated:** April 2026  
+> **Last Updated:** May 2026  
 > **Purpose:** Single source of truth for understanding the entire system without re-scanning files  
 > **Audience:** Engineers onboarding, maintaining, or extending this codebase
 
@@ -977,50 +977,44 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~9927 lines)
+**File:** `server.py` (~9981 lines)
+
+#### Imports from Extracted Modules
+
+| Module | Imported Names |
+|--------|---------------|
+| `utils.helpers` | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
+| `utils.file_helpers` | `parse_inventory_file`, `get_cache_status`, `get_device_state_path`, `load_device_state`, `save_device_state`, `get_device_info_from_cache` |
+| `parsers.output_parsers` | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail`, `extract_trailing_context` |
+| `services.show_version_cache` | `get_show_version_cache_path`, `load_show_version_cache`, `save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output` |
+| `ssh.client` | `connect_via_jumpbox`, `connect_to_device_via_jumpbox`, `connect_to_device_via_jumpbox_shell`, `JumpboxSessionManager`, `run_commands_on_device`, `execute_command_wait_prompt`, `execute_single_command`, `run_failover_check_on_device`, `parse_failover_state` |
 
 #### Major Regions
 
 | Lines | Module/Region | Purpose |
 |-------|---------------|---------|
-| 36-47 | Configuration | PROJECT_ROOT, folders, directory creation |
-| 60-103 | Flask App Setup | Flask initialization, static/template paths, secret key, CORS |
-| 104-330 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
-| 333-500 | Inventory & State Helpers | `parse_inventory_file()`, `get_cache_status()`, `get_device_state_path()`, `load_device_state()`, `save_device_state()` |
-| 503-1120 | Jumpbox Connection Layer | `connect_via_jumpbox()`, `connect_to_device_via_jumpbox()` (direct-tcpip + shell-hop), `connect_to_device_via_jumpbox_shell()` (ASA, FTD, FXOS login sequences) |
-| 1121-1407 | JumpboxSessionManager + Command Execution | Connection pooling, `run_commands_on_device()`, `execute_command_wait_prompt()`, `execute_single_command()`, `run_failover_check_on_device()` |
-| 1408-1467 | Command Execution | `execute_single_command()`, `run_failover_check_on_device()` |
-| 1468-1491 | Failover Parsing | `parse_failover_state()` |
-| 1492-1710 | Device Collection | `collect_single_device()` (single device with step tracking) |
-| 1711-1970 | Route & IP Parsing | `parse_show_route_output()`, `parse_show_ip_output()` |
-| 1971-2128 | Show Version + FXOS Parsing | `parse_show_version_output()`, `parse_fxos_chassis_detail()` |
-| 2129-2325 | Test Logging + Index Building | `save_test_log()`, `build_interface_index()`, `build_route_index()` (global INTERFACE_INDEX, ROUTE_INDEX) |
-| 2326-2672 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
-| 2673-2784 | Root Route + API Credentials | `/` → serves index.html; `/api/credentials` POST/clear |
-| 2785-3047 | Backup List & Config | `/api/backups/list`, `/api/backups/config-files`, `/api/backups/config` |
-| 3048-3290 | `/api/backups/compare-configs` | POST → inline diff (small configs) |
-| 3291-3572 | `/api/backups/compare-configs-job/*` + DB Helpers | SQLite-based chunked compare (legacy) |
-| 3573-4338 | Scalable Diff Infrastructure | `build_line_index()`, `extract_config_to_file()`, `run_external_diff()`, `run_difflib_diff()`, `parse_unified_diff()`, `get_scalable_job_metadata()/hunks()/content()` |
-| 4339-4677 | `/api/backups/compare-job` | POST → create scalable job (extracts, diffs, stores); GET hunks/content |
-| 4678-4771 | `/api/backups/compare-job/<job_id>/export.csv` + download-config | Stream CSV export + raw .txt download |
-| 4772-4831 | `/api/devices` + `/api/device-interfaces/<hostname>` | GET → inventory with cache status + cached interfaces |
-| 4832-5034 | `/api/auto-select-firewalls` + `/api/collect-single-device` + `/api/collect-data` | POST → find firewalls by IP, collect one device, batch collection |
-| 5035-5342 | `/api/run-ping` + `/api/run-packet-tracer` | POST → execute ping and packet-tracer |
-| 5343-5647 | `/api/run-show-route` + `/api/run-show-nat` | POST → execute show route and show nat |
-| 5648-6226 | `/api/failover-check` + `check_single_device_failover()` | POST → check failover state (batch + single) |
-| 6227-6328 | `/api/preferred-role` + `/api/logs` | POST → set preferred role; GET → list/view logs |
-| 6329-6354 | `/api/global-rules/inventory` + Catch-all route | GET → firewall hostnames; SPA fallback |
-| 6365-6995 | Show Version subsystem | Helpers (`get_show_version_cache_path()`, `load/save/run_show_version_on_device()`), `/api/show-version/<hostname>`, `/api/show-version-collect`, `/api/show-version-cache-missing`, `/api/generate-show-version-csv`, `/api/show-version-inventory` |
-| 6996-7075 | Show Version Inventory | `/api/show-version-inventory` GET → inventory with version cache |
-| 7081-8596 | FRA helpers & Deploy subsystem | `_fra_load_config()`, `_fra_save_config()`, `_fra_get_base_path()`, `_fra_perform_rollover()`, `_fra_backup_prepare_rules()`, date-folder metadata; `/api/firewall-rules-auto/deploy`, `/deploy/status`, `/deploy/cancel` |
-| 8597-8808 | FRA Deploy endpoints | POST deploy (async SSH, credentials never stored), GET deploy/status (polling), POST deploy/cancel, POST configure, GET config |
-| 8809-8872 | `/api/firewall-rules-auto/create-date-folders` | POST → create today/tomorrow/day+2 folders |
-| 8873-9133 | FRA scheduler | `_fra_scheduler_loop()`, `_start_scheduler()` (daemon thread, 60s tick); handles rollover + prepare independently each with daily guard |
-| 9134-9247 | `/api/firewall-rules-auto/run-scheduled` + `/deploy/latest-results` | POST manual scheduler test; GET latest deploy results |
-| 9248-9405 | `/api/firewall-rules-auto/base-status` + `ensure-folders` + `date-folders` + `archive-today` | POST ensure folders + rollover + future folders; GET list date folders; POST archive today |
-| 9406-9560 | `/api/firewall-rules-auto/prepare` | POST → scan date folder `*.txt`, write `Prepare_Rules/Output` |
-| 9561-9689 | `/api/firewall-rules-auto/backup-folders` + `/backup-subfolders` + `/backup-files` + `/backup-read` | GET → list backup folders, subfolders, files; read log file content |
-| 9690-9772 | `/api/firewall-rules-auto/scheduler-status` + `/base-status` | GET → scheduler runtime status + core folder existence check |
+| 1-36 | Imports | Standard library + Flask + external libs |
+| 36-111 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
+| 112-159 | Configuration | `get_secret_key()`, `CredentialError`, PROJECT_ROOT derived |
+| 160-291 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
+| 292-376 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
+| 377-595 | Device Collection | `collect_single_device()` (single device with step tracking) |
+| 596-691 | Test Logging | `save_test_log()` (writes to `SESSION_LOGS_FOLDER`) |
+| 613-691 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
+| 692-773 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
+| 774-1121 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
+| 1122-2040 | API Route Handlers | `/` (index), `/api/credentials`, `/api/backups/*`, `/api/data-collection/cancel`, etc. |
+| 2041-2255 | Compare Job DB Helpers | `create_job_db()`, `store_diff_rows()`, `fetch_diff_range()`, `cleanup_old_jobs()` (SQLite-based legacy) |
+| 2256-3205 | Scalable Diff Infrastructure | `build_line_index()`, `extract_config_to_file()`, `run_external_diff()`, `run_difflib_diff()`, `parse_unified_diff()`, compare-job routes |
+| 3206-4087 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
+| 4088-4792 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
+| 4793-5403 | Show Version Subsystem | `run_show_version_on_device()`, routes: `/api/show-version/<hostname>`, `/api/show-version-collect`, `/api/show-version-cache-missing`, `/api/generate-show-version-csv`, `/api/show-version-inventory` |
+| 5404-8830 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
+| 8830-9105 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
+| 9106-9400 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare` |
+| 9401-9675 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read` |
+| 9676-9760 | FRA Status Routes | `/api/firewall-rules-auto/scheduler-status`, `/base-status` |
+| 9761-9941 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
 
 ### 6.2 app/web/templates/index.html
 
@@ -1392,6 +1386,110 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `.status-active` | Green status indicator |
 | `.status-inactive` | Red status indicator |
 | `.status-warning` | Orange/yellow status indicator |
+
+### 6.9 utils/helpers.py
+
+**File:** `utils/helpers.py` (~68 lines)
+
+#### Functions
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `clean_command_output` | `(output: str) -> str` | Strips ANSI escape codes and trailing whitespace from device output |
+| `prefix_to_netmask` | `(prefix: str) -> str` | Converts CIDR prefix length (e.g. "24") to dotted-quad netmask (e.g. "255.255.255.0") |
+| `is_valid_netmask` | `(mask: str) -> bool` | Validates that a string is a proper dotted-quad netmask |
+| `escape_html_for_server` | `(text: str) -> str` | Escapes HTML special characters in server-originated text |
+
+**Dependencies:** `os`, `re`, `ipaddress`
+**Imported by:** `server.py`, `ssh/client.py`, `parsers/output_parsers.py`
+
+---
+
+### 6.10 utils/file_helpers.py
+
+**File:** `utils/file_helpers.py` (~202 lines)
+
+#### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `parse_inventory_file(filepath)` | Reads `*_inventory.txt`, returns list of dicts: `{hostname, ip, type, is_gateway}` |
+| `get_cache_status(hostname)` | Checks `data/collected_devices/<hostname>.json` exists and is non-empty |
+| `get_device_state_path(hostname)` | Returns `Path` to `data/device_state/<hostname>.json` |
+| `load_device_state(hostname)` | Reads device state JSON, returns dict with failover/preferred_role |
+| `save_device_state(hostname, data)` | Writes device state dict to JSON file |
+| `get_device_info_from_cache(hostname)` | Reads full cached device data from `data/collected_devices/` |
+
+**Dependencies:** `json`, `Path` from `pathlib`
+**Path convention:** Uses `Path(__file__).resolve().parent.parent / "data" / ...` (module-local computation)
+**Imported by:** `server.py`
+
+---
+
+### 6.11 parsers/output_parsers.py
+
+**File:** `parsers/output_parsers.py` (~385 lines)
+
+#### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `parse_show_route_output(output)` | Parses Cisco `show route` output into structured route entries (network, nexthop, interface, type, preference) |
+| `parse_show_ip_output(output)` | Parses Cisco `show ip` interface output into structured interface data |
+| `parse_show_version_output(output)` | Parses `show version` output for model, serial, software version, uptime |
+| `parse_fxos_chassis_detail(output)` | Parses FXOS `show chassis detail` output for chassis serial, model, status |
+| `extract_trailing_context(output)` | Extracts trailing context lines from device output |
+
+**Dependencies:** `re`, `prefix_to_netmask`, `is_valid_netmask` (from `utils.helpers`)
+**Imported by:** `server.py`
+
+---
+
+### 6.12 services/show_version_cache.py
+
+**File:** `services/show_version_cache.py` (~105 lines)
+
+#### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `get_show_version_cache_path(hostname)` | Returns `Path` to `data/show_version_cache/<hostname>.json` |
+| `load_show_version_cache(hostname)` | Loads cached show version data from JSON file |
+| `save_show_version_cache(hostname, data)` | Saves show version data to JSON cache file |
+| `extract_context_from_show_version_text(text)` | Extracts contextual metadata (model, serial, version) from raw show version text |
+| `strip_device_output(output)` | Strips device prompt and control characters from raw output |
+
+**Dependencies:** `json`, `Path` from `pathlib`
+**Path convention:** `Path(__file__).resolve().parent.parent / "data" / ...`
+**Imported by:** `server.py`
+
+---
+
+### 6.13 ssh/client.py
+
+**File:** `ssh/client.py` (~831 lines)
+
+#### Key Classes
+
+| Class | Purpose |
+|-------|---------|
+| `JumpboxSessionManager` | Connection pool managing SSH jumpbox sessions with reconnection logic; stores `paramiko.SSHClient` instances keyed by session ID |
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `connect_via_jumpbox(session_id, target_host, target_port)` | Opens a direct-tcpip channel through the jumpbox to the target device; returns connected `paramiko.Channel` |
+| `connect_to_device_via_jumpbox(session_id, device_creds)` | Full SSH connection through jumpbox using direct-tcpip channel forwarding + Paramiko transport |
+| `connect_to_device_via_jumpbox_shell(session_id, device_type, device_creds)` | Shell-based jumpbox hop with device-specific login sequences (ASA `enable`, FTD `login as:`, FXOS `connect fxos`) |
+| `run_commands_on_device(channel, commands, device_type)` | Sends multiple commands through an open channel, collects output for each |
+| `execute_command_wait_prompt(channel, command, device_type, timeout)` | Sends command and waits for device-specific prompt pattern |
+| `execute_single_command(session_id, device_creds, command, device_type)` | High-level one-shot: connect + execute + return output |
+| `run_failover_check_on_device(channel, device_type)` | Runs failover show commands and returns structured failover state |
+| `parse_failover_state(device_type, output)` | Parses `show failover` (ASA) or `show firewall` (FTD/FXOS) output for active/standby state |
+
+**Dependencies:** `paramiko`, `time`, `re`, `Path`, `clean_command_output` (from `utils.helpers`)
+**Imported by:** `server.py`
 
 ---
 
