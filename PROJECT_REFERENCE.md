@@ -25,7 +25,7 @@
 
 ```
 project2/
-├── server.py              # Primary Python/Flask backend (~8945 lines) (ACTIVE)
+├── server.py              # Primary Python/Flask backend (~3993 lines) (ACTIVE)
 ├── server.js              # Legacy Node.js/Express backend (DEPRECATED)
 ├── run_server.py          # Launcher script for Python server
 │
@@ -45,6 +45,15 @@ project2/
 │   └── client.py            # SSH connections, jumpbox pool, command execution
 │
 ├── app/
+│   ├── api/                           # Flask blueprint route modules
+│   │   ├── credentials.py            # 2 routes (39 lines)
+│   │   ├── cancel.py                 # 4 routes (57 lines)
+│   │   ├── logs.py                   # 2 routes (56 lines)
+│   │   ├── global_rules.py           # 1 route (24 lines)
+│   │   ├── show_version.py           # 5 routes (422 lines)
+│   │   ├── devices.py                # 12 routes + 2 helpers (1814 lines)
+│   │   ├── backups.py                # 14 routes (1084 lines)
+│   │   └── firewall_rules_auto.py    # 26 routes (1244 lines)
 │   └── web/
 │       ├── templates/
 │       │   ├── index.html           # Main SPA template
@@ -101,7 +110,15 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Core orchestration (~8945 lines) | Flask app, API routes, job system, scheduler, FRA logic, credentials |
+| `server.py` | Core orchestration (~3993 lines) | Flask app factory, helpers, blueprint registration, index + catch-all routes |
+| `app/api/credentials.py` | 2 credential routes | POST `/api/credentials`, POST `/api/credentials/clear` |
+| `app/api/cancel.py` | 4 cancel routes | POST `/api/cancel/<scope>`, cancel-management |
+| `app/api/logs.py` | 2 log routes | GET `/api/logs`, GET `/api/logs/<log_id>` |
+| `app/api/global_rules.py` | 1 global-rules route | GET `/api/global-firewall-rules` |
+| `app/api/show_version.py` | 5 show-version routes | CRUD + CSV + inventory for show-version cache |
+| `app/api/devices.py` | 12 device routes + 2 helpers | Devices, interfaces, collect, ping/tracer/route/nat, failover |
+| `app/api/backups.py` | 14 backup routes | Jumpbox backups, config files, compare (old + scalable) |
+| `app/api/firewall_rules_auto.py` | 26 FRA routes | Deploy, configure, audit, scheduler, reports |
 | `server.js` | Legacy backend | Deprecated Node.js implementation |
 | `utils/helpers.py` | Formatting/validation (~68 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
 | `utils/file_helpers.py` | File/device-state/test-log helpers (~215 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache`, `save_test_log` |
@@ -158,7 +175,7 @@ project2/
                                     │ HTTP JSON
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       server.py (Flask)                                     │
+│                    server.py (Flask ~3993 lines)                             │
 │                                                                             │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
 │  │ Session Management (threading.Lock)                                  │    │
@@ -173,12 +190,17 @@ project2/
 │  └──────────────────────────────────────────────────────────────────────┘    │
 │                                    │                                        │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
-│  │ Route Handlers (see API Catalog)                                   │    │
-│  │  /api/credentials          /api/backups/*                            │    │
-│  │  /api/devices             /api/auto-select-firewalls                 │    │
-│  │  /api/collect-*          /api/run-*                                │    │
-│  │  /api/show-version-*     /api/preferred-role                      │    │
-│  │  /api/firewall-rules-auto/*  (local FS: Prepare_Rules, date folders) │    │
+│  │ Blueprint Registration & Dispatch                                  │    │
+│  │  8 blueprints in app/api/ (66 routes total)                        │    │
+│  │  app.register_blueprint(bp) for each                              │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │ Blueprint Route Handlers (see API Catalog)                         │    │
+│  │  app/api/credentials.py   app/api/cancel.py                       │    │
+│  │  app/api/devices.py      app/api/backups.py                       │    │
+│  │  app/api/show_version.py  app/api/logs.py                         │    │
+│  │  app/api/global_rules.py  app/api/firewall_rules_auto.py           │    │
 │  └──────────────────────────────────────────────────────────────────────┘    │
 │                                    │                                        │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
@@ -979,7 +1001,24 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~8945 lines)
+**File:** `server.py` (~3993 lines)
+
+#### Blueprint Registration
+
+`server.py` creates all blueprints and registers them with the Flask app via `app.register_blueprint()`:
+
+| Blueprint Module | Prefix | Line Count | Routes |
+|------------------|--------|-----------|--------|
+| `app.api.credentials` | (none) | 39 | 2 |
+| `app.api.cancel` | (none) | 57 | 4 |
+| `app.api.logs` | (none) | 56 | 2 |
+| `app.api.global_rules` | (none) | 24 | 1 |
+| `app.api.show_version` | (none) | 422 | 5 |
+| `app.api.devices` | (none) | 1,814 | 12 + 2 helpers |
+| `app.api.backups` | (none) | 1,084 | 14 |
+| `app.api.firewall_rules_auto` | (none) | 1,244 | 26 |
+
+All 66 API route functions were extracted from `server.py`. Only `@app.route("/")` (index) and `@app.route("/<path:path>")` (catch-all) remain directly in `server.py`. Blueprints use lazy imports (`from server import ...`) inside function bodies to avoid circular imports.
 
 #### Imports from Extracted Modules
 
@@ -996,28 +1035,51 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 | Lines | Module/Region | Purpose |
 |-------|---------------|---------|
-| 1-36 | Imports | Standard library + Flask + external libs |
-| 37-101 | Extracted Module Imports | Re-imports from `utils.*`, `parsers.*`, `services.*`, `ssh.*` |
-| 102-182 | Configuration | Path definitions, Flask app init, `get_secret_key()`, `CredentialError` |
-| 183-314 | Job Management System | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `cancel_job()`, global `JOBS_REGISTRY` dict with threading |
-| 315-399 | Session/Credential Management | `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
-| 400-618 | Device Collection | `collect_single_device()` (single device with step tracking) |
-| 619-697 | Interface Index Building | `build_interface_index()` (global `INTERFACE_INDEX` with lock) |
-| 698-776 | Route Index Building | `build_route_index()` (global `ROUTE_INDEX` with lock) |
-| 777-1124 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
-| 1125-1236 | Root Route + Credentials | `/` → serves index.html; `/api/credentials` POST/clear; cancel routes |
-| 1237-2054 | API Route Handlers | `/api/backups/list`, `/api/backups/config`, `/api/backups/compare-configs`, `/api/backups/compare-configs-job` (route-only; helpers in `services/diff_engine.py`) |
-| 2055-2281 | Scalable Diff Route Handlers | `/api/backups/compare-job` POST/GET hunks/content, DELETE, export.csv, download-config (logic in `services/diff_engine.py`) |
-| 2282-3157 | Data Collection Routes | `/api/devices`, `/api/device-interfaces`, `/api/auto-select-firewalls`, `/api/collect-single-device`, `/api/collect-data`, `/api/run-ping`, `/api/run-packet-tracer`, `/api/run-show-route`, `/api/run-show-nat` |
-| 3158-3862 | Failover & Misc Routes | `/api/failover-check`, `/api/preferred-role`, `/api/logs`, `/api/global-rules/inventory`, catch-all |
-| 3863-4379 | Show Version Subsystem | `api_get_cached_show_version`, `api_collect_show_version`, `api_show_version_cache_missing`, `api_generate_show_version_csv`, `api_get_show_version_inventory` (`run_show_version_on_device` in `services/show_version_cache.py`) |
-| 4380-7819 | FRA Logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem (SSH via Netmiko), backup prepare/rollover |
-| 7820-8088 | FRA Scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick), `_start_scheduler()`, daily rollover + prepare guards |
-| 8089-8515 | FRA Route Handlers | `/api/firewall-rules-auto/run-scheduled`, `/latest-results`, `/ensure-folders`, `/date-folders`, `/archive-today`, `/prepare`, `/deploy`, `/configure`, audit-index endpoints |
-| 8516-8644 | FRA Backup/Status Routes | `/api/firewall-rules-auto/backup-folders`, `/backup-files`, `/backup-subfolders`, `/backup-read`, `/scheduler-status`, `/base-status` |
-| 8645-8945 | FRA Reports + Entry Point | `/api/firewall-rules-auto/report/scan-stats`, `/report/download`, `cleanup()`, `main()` |
+| 1-28 | Imports | Standard library + Flask + external libs + extracted module imports (`utils.*`, `parsers.*`, `services.*`, `ssh.*`) |
+| 29-109 | Configuration | Path definitions, Flask app init, `get_secret_key()`, `CredentialError`, TMP_DIFF_FOLDER mkdir |
+| 110-247 | Job Management + Session/Credentials | `JOBS_REGISTRY` with threading, `SESSION_CREDS`, `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
+| 248-465 | Device Collection + Index Building | `collect_single_device()` (step tracking), `build_interface_index()`, `build_route_index()` |
+| 466-813 | Auto-Selection Logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
+| 814-880 | Blueprint Registration + Routes | `app.register_blueprint()` for all 8 blueprints; `@app.route("/")` index; `@app.route("/<path:path>")` catch-all |
+| 881-1021 | FRA Logic (Helpers) | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (`_fra_build_excel_report` ~500+ lines with openpyxl), deploy subsystem, backup prepare/rollover, scheduler loop |
+| 1022-1068 | FRA Scheduler + Entry Point | `_start_scheduler()`, `_fra_scheduler_loop()` (daemon thread, 60s tick), `cleanup()`, `main()` |
 
-### 6.2 app/web/templates/index.html
+### 6.2 Blueprint Modules (`app/api/`)
+
+All blueprints follow the same pattern:
+- Defined with `Blueprint(__name__, ...)` at module level
+- Route functions use `@bp.route(...)` decorators
+- Blueprint imports (`from server import ...`) happen inside function bodies (lazy) to avoid circular imports
+- Registered in `server.py` via `app.register_blueprint(bp)`
+
+#### 6.2.1 `app/api/credentials.py` (39 lines)
+- **`POST /api/credentials`** — Save credentials to `SESSION_CREDS[sid]`
+- **`POST /api/credentials/clear`** — Clear `SESSION_CREDS[sid]`
+
+#### 6.2.2 `app/api/cancel.py` (57 lines)
+- **`POST /api/cancel/<scope>`** — Cancel running job by scope (`data-collection`, `firewall-inventory`, `path-finder`); uses `JOBS_REGISTRY`
+
+#### 6.2.3 `app/api/logs.py` (56 lines)
+- **`GET /api/logs`** — List session logs
+- **`GET /api/logs/<log_id>`** — Get single log entry
+
+#### 6.2.4 `app/api/global_rules.py` (24 lines)
+- **`GET /api/global-firewall-rules`** — Load firewall inventory for global rules
+
+#### 6.2.5 `app/api/show_version.py` (422 lines)
+- 5 routes: cache retrieval, collect, cache-missing check, CSV generation, inventory listing
+
+#### 6.2.6 `app/api/devices.py` (1814 lines)
+- 12 routes + 2 helpers (`collect_single_device`, `check_single_device_failover`)
+- All device, interface, collection, ping/tracer/route/nat, failover-check, preferred-role routes
+
+#### 6.2.7 `app/api/backups.py` (1084 lines)
+- 14 routes for jumpbox backup listing, config file browsing, config viewing, inline compare + scalable compare job
+
+#### 6.2.8 `app/api/firewall_rules_auto.py` (1244 lines)
+- 26 routes: configure, config, create-date-folders, ensure-folders, date-folders, prepare, archive-today, run-scheduled, backup-folders/subfolders/files/read, deploy/status/cancel/latest-results, audit-index/stats/entries/scan/devices/categories, report/scan-stats/download
+
+### 6.3 app/web/templates/index.html
 
 **File:** `app/web/templates/index.html` (~1241 lines)
 
@@ -1075,7 +1137,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | Pane Controls | `#left-config-search-input`, `#right-config-search-input`, `#lock-scroll-checkbox` | Search, sync scroll |
 | Download | `#left-download-txt-btn`, `#right-download-txt-btn` | Raw config download |
 
-### 6.3 app/web/static/js/app.js
+### 6.4 app/web/static/js/app.js
 
 **File:** `app/web/static/js/app.js` (~2584 lines)
 
@@ -1138,7 +1200,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | `window._dcCurrentAbortController` | AbortController | In-flight Data Collection fetch controller |
 | `window._fwCurrentAbortController` | AbortController | In-flight Firewall Inventory fetch controller |
 
-### 6.4 app/web/static/js/firewall_backups.js
+### 6.5 app/web/static/js/firewall_backups.js
 
 **File:** `app/web/static/js/firewall_backups.js` (~2700+ lines)
 
@@ -1179,7 +1241,7 @@ const CHUNK_SIZE = 3000;              // Rows per fetch
 const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 ```
 
-### 6.5 app/web/static/js/global_rules.js
+### 6.6 app/web/static/js/global_rules.js
 
 **File:** `app/web/static/js/global_rules.js` (~733 lines)
 
@@ -1212,7 +1274,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `generateUrlRules()` | Validate → generate FQDN ACL + object networks |
 | `deduplicateOutput()` | Remove duplicate lines |
 
-### 6.6 app/web/static/js/show_version.js
+### 6.7 app/web/static/js/show_version.js
 
 **File:** `app/web/static/js/show_version.js` (~326 lines)
 
@@ -1242,7 +1304,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `#show-version-selected-btn` handler | Batch loop with `fwInventoryCancelRequested` check + per-device AbortController |
 | `.refresh-version-btn` handler | Uses AbortController; stores in `window._fwCurrentAbortController` |
 
-### 6.7 app/web/static/js/firewall_rules_auto.js
+### 6.8 app/web/static/js/firewall_rules_auto.js
 
 **File:** `app/web/static/js/firewall_rules_auto.js` (~1528 lines)
 
@@ -1367,7 +1429,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 **Date Folder Labels:** `refreshDateFolders()` shows `(past)`, `(empty)`, `(tagged)` based on folder metadata. Past folders are styled as muted.
 
-### 6.8 app/web/static/css/styles.css
+### 6.9 app/web/static/css/styles.css
 
 **File:** `app/web/static/css/styles.css` (~333 lines)
 
@@ -1388,7 +1450,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `.status-inactive` | Red status indicator |
 | `.status-warning` | Orange/yellow status indicator |
 
-### 6.9 utils/helpers.py
+### 6.10 utils/helpers.py
 
 **File:** `utils/helpers.py` (~68 lines)
 
@@ -1406,7 +1468,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ---
 
-### 6.10 utils/file_helpers.py
+### 6.11 utils/file_helpers.py
 
 **File:** `utils/file_helpers.py` (~215 lines)
 
@@ -1428,7 +1490,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ---
 
-### 6.11 parsers/output_parsers.py
+### 6.12 parsers/output_parsers.py
 
 **File:** `parsers/output_parsers.py` (~385 lines)
 
@@ -1447,7 +1509,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ---
 
-### 6.12 services/show_version_cache.py
+### 6.13 services/show_version_cache.py
 
 **File:** `services/show_version_cache.py` (~209 lines)
 
@@ -1468,7 +1530,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ---
 
-### 6.13 ssh/client.py
+### 6.14 ssh/client.py
 
 **File:** `ssh/client.py` (~831 lines)
 
@@ -1494,7 +1556,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 **Dependencies:** `paramiko`, `time`, `re`, `Path`, `clean_command_output` (from `utils.helpers`)
 **Imported by:** `server.py`
 
-### 6.14 services/diff_engine.py
+### 6.15 services/diff_engine.py
 
 **File:** `services/diff_engine.py` (~953 lines)
 
@@ -1774,6 +1836,7 @@ Review this document when:
 | 2026-05-20 | Doc accuracy audit — corrected file counts and line numbers: server.py (~7100→~8300), app.js (~2500→~2584), index.html (~1105→~1241), firewall_rules_auto.js (~350→~1082), styles.css (~390→~333), show_version.js (~285→~326); added missing files to repo tree (FirewallDeploy_inventory.txt, test_myers_diff.html, Firewall_Rules_Auto_User_Guide.md, FRA_REPORTS_LOGVIEWER_REFERENCE.md); updated misc/ directory listing; rewrote server.py Section 6.1 line-number table to match actual code; updated File Inventory Summary with line counts | `docs/PROJECT_REFERENCE.md` | None (doc-only changes) | None |
 | 2026-05-20 | Audit log indexing: added persistent SQLite index for historical prepare_audit.log files under Prepare_Rules/Backup; 5 new API endpoints (audit-index/stats, entries, scan, devices, categories); startup scan + scheduler-tick incremental scan; 180-day configurable retention; enhanced Log Viewer with Audit Index toggle, paginated table (500 rows/page), category/device/date/search filters, auto-refresh polling | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/audit-index/stats`, `/api/firewall-rules-auto/audit-index/entries`, `/api/firewall-rules-auto/audit-index/scan`, `/api/firewall-rules-auto/audit-index/devices`, `/api/firewall-rules-auto/audit-index/categories`, `/api/firewall-rules-auto/configure` (extended), `/api/firewall-rules-auto/config` (extended) | `#fra-view-toggle`, `#fra-view-browse-btn`, `#fra-view-index-btn`, `#fra-view-browse-body`, `#fra-view-index-body`, `#fra-index-category`, `#fra-index-device`, `#fra-index-date-from`, `#fra-index-date-to`, `#fra-index-search`, `#fra-index-filter-btn`, `#fra-index-count`, `#fra-index-refresh-btn`, `#fra-index-scan-btn`, `#fra-index-table`, `#fra-index-tbody`, `#fra-index-page-info`, `#fra-index-prev-btn`, `#fra-index-next-btn` |
 | 2026-05-20 | Report feature: added Excel report generation from stats.log + Deploystats.txt via openpyxl; 7 pre-defined metrics with native Excel charts (Bar/Pie/Line/Doughnut); executive dashboard layout (navy title banner, 4 KPI cards, 2-column chart grid, heatmap, executive insights); 3 sheets (Overview, Chart Formula hidden, Detailed with freeze panes/autofilter); inline config panel with dynamic metric checkbox enable/disable via scan-stats endpoint; synchronous download with malformed-line reporting and backend warnings | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/report/download`, `/api/firewall-rules-auto/report/scan-stats` | `#fra-report-btn`, `#fra-report-config`, `#fra-report-metrics`, `#fra-report-chart-type`, `#fra-report-date-from`, `#fra-report-date-to`, `#fra-report-tag-filter`, `#fra-report-generate-btn`, `#fra-report-status`, `#fra-report-skipped`, `#fra-report-stats-status` |
+| 2026-05-25 | Blueprint refactoring: extracted all 66 API routes from server.py into 8 Flask blueprints under `app/api/`; server.py reduced from ~8945 to ~3993 lines; cleaned up unused imports; all routes validated after each extraction | `server.py`, `app/api/credentials.py`, `app/api/cancel.py`, `app/api/logs.py`, `app/api/global_rules.py`, `app/api/show_version.py`, `app/api/devices.py`, `app/api/backups.py`, `app/api/firewall_rules_auto.py`, `docs/PROJECT_REFERENCE.md` | All 66 API endpoints (unchanged) | None (all UI IDs unchanged) |
 
 ### Scheduler Behavior
 
