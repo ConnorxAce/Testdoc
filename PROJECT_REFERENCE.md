@@ -110,7 +110,7 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Core orchestration (~4103 lines) | Flask app factory, helpers, blueprint registration, index + catch-all routes |
+| `server.py` | Core orchestration (4264 lines) | Flask app factory, helpers, blueprint registration, index + catch-all routes |
 | `app/api/credentials.py` | 2 credential routes (38 lines) | POST `/api/credentials`, POST `/api/credentials/clear` |
 | `app/api/cancel.py` | 4 cancel routes (56 lines) | POST `/api/*/cancel` for 4 scopes |
 | `app/api/logs.py` | 2 log routes (55 lines) | GET `/api/logs`, GET `/api/logs/<log_id>` |
@@ -118,22 +118,20 @@ project2/
 | `app/api/show_version.py` | 5 show-version routes (421 lines) | CRUD + CSV + inventory for show-version cache |
 | `app/api/devices.py` | 12 device routes + 2 helpers (1836 lines) | Devices, interfaces, collect, ping/tracer/route/nat, failover |
 | `app/api/backups.py` | 14 backup routes (1072 lines) | Jumpbox backups, config files, compare (old + scalable) |
-| `app/api/firewall_rules_auto.py` | 26 FRA routes (1241 lines) | Deploy, configure, audit, scheduler, reports |
-| `server.js` | Legacy backend | Deprecated Node.js implementation |
-| `utils/helpers.py` | Formatting/validation (~67 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
-| `utils/file_helpers.py` | File/device-state/test-log helpers (~214 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache`, `save_test_log` |
-| `parsers/output_parsers.py` | Output parsers (~384 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
-| `services/show_version_cache.py` | Show version cache + device runner (~208 lines) | `load/save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output`, `run_show_version_on_device` |
+| `app/api/firewall_rules_auto.py` | 26 FRA routes (1307 lines) | Deploy, configure, audit, scheduler, reports |
+| `utils/helpers.py` | Formatting/validation (67 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
+| `utils/file_helpers.py` | File/device-state/test-log helpers (214 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache`, `save_test_log` |
+| `parsers/output_parsers.py` | Output parsers (384 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
+| `services/show_version_cache.py` | Show version cache + device runner (208 lines) | `load/save_show_version_cache`, `extract_context_from_show_version_text`, `strip_device_output`, `run_show_version_on_device` |
 | `services/diff_engine.py` | Config diff + job helpers (952 lines) | `build_line_index`, `run_external_diff`, `parse_unified_diff`, `create_scalable_job`, `cleanup_job`, `create_job_db`, `generate_csv_rows` |
-| `ssh/client.py` | SSH & jumpbox layer (~847 lines) | `connect_via_jumpbox`, `JumpboxSessionManager`, `run_commands_on_device`, `run_failover_check_on_device` |
-| `run_server.py` | Launcher | Checks prerequisites, installs deps, starts server |
-| `app/web/static/js/app.js` | Core frontend (~2753 lines) | Navigation, credentials save, device collection, ping/packet-tracer/route/NAT tests |
-| `app/web/static/js/firewall_backups.js` | Backup comparison (~2809 lines) | Archive listing, config file browsing, diff comparison, virtual scrolling |
-| `app/web/static/js/global_rules.js` | ACL generation (~733 lines) | Normal/URL rule generation with deduplication |
-| `app/web/static/js/show_version.js` | Version collection (~331 lines) | Show version fetch, display, CSV export |
-| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (Phase 1) (~1691 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
-| `app/web/templates/index.html` | Main UI (~1416 lines) | All page sections with DOM IDs |
-| `app/web/static/css/styles.css` | Styling (~395 lines) | Dark theme, terminal styles, diff highlighting |
+| `ssh/client.py` | SSH & jumpbox layer (847 lines) | `connect_via_jumpbox`, `JumpboxSessionManager`, `run_commands_on_device`, `run_failover_check_on_device` |
+| `app/web/static/js/app.js` | Core frontend (2753 lines) | Navigation, credentials save, device collection, ping/packet-tracer/route/NAT tests |
+| `app/web/static/js/firewall_backups.js` | Backup comparison (2809 lines) | Archive listing, config file browsing, diff comparison, virtual scrolling |
+| `app/web/static/js/global_rules.js` | ACL generation (733 lines) | Normal/URL rule generation with deduplication |
+| `app/web/static/js/show_version.js` | Version collection (331 lines) | Show version fetch, display, CSV export |
+| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (1863 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
+| `app/web/templates/index.html` | Main UI (1469 lines) | All page sections with DOM IDs |
+| `app/web/static/css/styles.css` | Styling (395 lines) | Dark theme, terminal styles, diff highlighting |
 
 ---
 
@@ -1001,7 +999,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (~4103 lines)
+**File:** `server.py` (4264 lines)
 
 #### Blueprint Registration
 
@@ -1016,7 +1014,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | `app.api.show_version` | 421 | 5 |
 | `app.api.devices` | 1,836 | 12 + 2 helpers |
 | `app.api.backups` | 1,072 | 14 |
-| `app.api.firewall_rules_auto` | 1,241 | 26 |
+| `app.api.firewall_rules_auto` | 1,307 | 26 |
 
 All 66 API route functions were extracted from `server.py`. Only `@app.route("/")` (index) and `@app.route("/<path:path>")` (catch-all) remain directly in `server.py`. Blueprints use lazy imports (`from server import ...`) inside function bodies to avoid circular imports.
 
@@ -1096,7 +1094,7 @@ All blueprints follow the same pattern:
 
 ### 6.3 app/web/templates/index.html
 
-**File:** `app/web/templates/index.html` (~1416 lines)
+**File:** `app/web/templates/index.html` (1469 lines)
 
 #### Major Sections and DOM IDs
 
@@ -1154,7 +1152,7 @@ All blueprints follow the same pattern:
 
 ### 6.4 app/web/static/js/app.js
 
-**File:** `app/web/static/js/app.js` (~2753 lines)
+**File:** `app/web/static/js/app.js` (2753 lines)
 
 #### Top-Level Responsibilities
 
@@ -1217,7 +1215,7 @@ All blueprints follow the same pattern:
 
 ### 6.5 app/web/static/js/firewall_backups.js
 
-**File:** `app/web/static/js/firewall_backups.js` (~2809 lines)
+**File:** `app/web/static/js/firewall_backups.js` (2809 lines)
 
 #### Top-Level Responsibilities
 
@@ -1258,7 +1256,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.6 app/web/static/js/global_rules.js
 
-**File:** `app/web/static/js/global_rules.js` (~733 lines)
+**File:** `app/web/static/js/global_rules.js` (733 lines)
 
 #### Top-Level Responsibilities
 
@@ -1291,7 +1289,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.7 app/web/static/js/show_version.js
 
-**File:** `app/web/static/js/show_version.js` (~331 lines)
+**File:** `app/web/static/js/show_version.js` (331 lines)
 
 #### Top-Level Responsibilities
 
@@ -1321,7 +1319,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.8 app/web/static/js/firewall_rules_auto.js
 
-**File:** `app/web/static/js/firewall_rules_auto.js` (~1691 lines)
+**File:** `app/web/static/js/firewall_rules_auto.js` (1863 lines)
 
 #### Top-Level Responsibilities
 - Manage base path input with localStorage persistence (read on load if server has no path; written on change/save)
@@ -1446,7 +1444,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.9 app/web/static/css/styles.css
 
-**File:** `app/web/static/css/styles.css` (~395 lines)
+**File:** `app/web/static/css/styles.css` (395 lines)
 
 #### Key Classes and IDs
 
@@ -1467,7 +1465,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.10 utils/helpers.py
 
-**File:** `utils/helpers.py` (~67 lines)
+**File:** `utils/helpers.py` (67 lines)
 
 #### Functions
 
@@ -1485,7 +1483,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.11 utils/file_helpers.py
 
-**File:** `utils/file_helpers.py` (~214 lines)
+**File:** `utils/file_helpers.py` (214 lines)
 
 #### Functions
 
@@ -1507,7 +1505,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.12 parsers/output_parsers.py
 
-**File:** `parsers/output_parsers.py` (~384 lines)
+**File:** `parsers/output_parsers.py` (384 lines)
 
 #### Functions
 
@@ -1526,7 +1524,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.13 services/show_version_cache.py
 
-**File:** `services/show_version_cache.py` (~208 lines)
+**File:** `services/show_version_cache.py` (208 lines)
 
 #### Functions
 
@@ -1547,7 +1545,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.14 ssh/client.py
 
-**File:** `ssh/client.py` (~847 lines)
+**File:** `ssh/client.py` (847 lines)
 
 #### Key Classes
 
@@ -1586,7 +1584,7 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 
 ### 6.15 services/diff_engine.py
 
-**File:** `services/diff_engine.py` (~952 lines)
+**File:** `services/diff_engine.py` (952 lines)
 
 #### Module-Level Exports
 
@@ -1867,12 +1865,13 @@ Review this document when:
 | 2026-05-25 | Blueprint refactoring: extracted all 66 API routes from server.py into 8 Flask blueprints under `app/api/`; server.py reduced from ~8945 to ~4103 lines; cleaned up unused imports; all routes validated after each extraction | `server.py`, `app/api/credentials.py`, `app/api/cancel.py`, `app/api/logs.py`, `app/api/global_rules.py`, `app/api/show_version.py`, `app/api/devices.py`, `app/api/backups.py`, `app/api/firewall_rules_auto.py`, `docs/PROJECT_REFERENCE.md` | All 66 API endpoints (unchanged) | None (all UI IDs unchanged) |
 | 2026-05-25 | Doc accuracy audit — corrected line counts to match actual code: server.py (~4105→~4103), creds (39→38), cancel (57→56), logs (56→55), global_rules (24→23), show_version (422→421), backups (1084→1072), firewall_rules_auto (1244→1241); fixed 1813→1814 for devices; updated Major Regions table with accurate server.py line numbers; added route details to §6.2 cancel/show_version entries | `docs/PROJECT_REFERENCE.md` | None (doc-only changes) | None |
 | 2026-05-26 | Fixed `handle_device_with_reconnect` crash (NoneType jumpbox client passed as device connection); refactored to call `ensure_connection()` and create proper device connection via `connect_to_device_via_jumpbox()` before invoking operation function; added device connection cleanup. Updated §6.14 ssh/client.py docs with accurate signatures, JumpboxSessionManager method table, and corrected line counts (devices.py 1814→1836, client.py ~830→~847). | `ssh/client.py`, `docs/PROJECT_REFERENCE.md` | `/api/failover-check` (batch), `/api/failover-check/selected` (batch), `/api/collect-data` (batch) | None |
+| 2026-05-26 | Firewall Rules Auto: added scheduled deploy (Phase 4a–4d) — deployTime schedule option with Set/Unset UI; encrypted credential storage via Fernet (cryptography); 3 credential API endpoints (POST/DELETE/GET); deploy guard in scheduler loop; deploy-time input + deploy schedule badge in schedule section; Set User/Unset User buttons + credential modal; deploy creds status display; `_fra_scheduled_deploy()` calls existing deploy worker with synthetic job key; `_start_scheduler()` starts if any of rollover/prepare/deploy time configured; added Prepare_Rules/Output emptiness check before deploy — skips if output folder contains no files | `server.py`, `app/api/firewall_rules_auto.py`, `app/web/templates/index.html`, `app/web/static/js/firewall_rules_auto.js`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/configure` (extended), `/api/firewall-rules-auto/config` (extended), `POST /api/firewall-rules-auto/deploy/credentials`, `DELETE /api/firewall-rules-auto/deploy/credentials`, `GET /api/firewall-rules-auto/deploy/credentials`, `/api/firewall-rules-auto/scheduler-status` (extended) | `#fra-deploy-time`, `#fra-set-deploy-btn`, `#fra-unset-deploy-btn`, `#fra-deploy-schedule-badge`, `#fra-deploy-set-user-btn`, `#fra-deploy-unset-user-btn`, `#fra-deploy-creds-status`, `#fra-deploy-creds-modal`, `#fra-deploy-creds-username`, `#fra-deploy-creds-password`, `#fra-deploy-creds-enable-secret`, `#fra-deploy-creds-save-btn`, `#fra-deploy-creds-modal-status` |
 
 ### Scheduler Behavior
 
-**Startup:** `_start_scheduler()` is called during server startup (`main()` function). It checks if `rolloverTime` or `prepareTime` is saved in config. If either is set, the scheduler thread starts automatically.
+**Startup:** `_start_scheduler()` is called during server startup (`main()` function). It checks if `rolloverTime`, `prepareTime`, or `deployTime` is saved in config. If any is set, the scheduler thread starts automatically.
 
-**Runtime:** The background scheduler (`_fra_scheduler_loop`) runs every 60 seconds and checks if the current time matches either configured `rolloverTime` or `prepareTime`. Each runs independently with its own daily guard using persistent file `last_scheduled_rollover_date.txt`.
+**Runtime:** The background scheduler (`_fra_scheduler_loop`) runs every 60 seconds and checks if the current time matches any of the configured `rolloverTime`, `prepareTime`, or `deployTime`. Each runs independently with its own daily guard (rollover/prepare use `last_scheduled_rollover_date.txt` / `last_scheduled_prepare_date.txt`; deploy uses an in-memory set `_fra_last_deploy_date` reset on restart).
 
 **Rollover job** (when `rolloverTime` matches):
 1. Reads `<basePath>\Prepare_Rules\last_scheduled_rollover_date.txt` to check if already ran today
@@ -1893,9 +1892,18 @@ Review this document when:
 5. Executes prepare logic for target folder (`<base>/YYYYMMDD/`) using the same parsing as `POST /api/firewall-rules-auto/prepare`
 6. Writes output to `Prepare_Rules/Output/<device>.txt` and logs to `prepare_audit.log`, `ExcludedLog.log`, `errors.log`
 
+**Deploy job** (when `deployTime` matches):
+1. Loads encrypted credentials from `data/firewall_rules_auto_deploy_creds.enc` and decrypts with Fernet
+2. Loads FRA config, checks `<basePath>/Prepare_Rules/Output/` — if directory exists but contains **no files**, logs "Deploy skipped: Prepare_Rules/Output is empty" and returns (prevents deploying empty rule sets)
+3. Parses deploy inventory from `<basePath>/FirewallDeploy_inventory.txt` — if no devices found, skips with "no devices in inventory"
+4. Checks `_fra_deploy_is_running()` — if another FRA operation is in progress, skips with "another FRA operation is running"
+5. Scopes execution under synthetic job key `("__scheduler__", "deploy", "firewall-rules-auto-deploy")` — prevents overlap with manual deploys
+6. Calls `_fra_deploy_worker()` directly with loaded credentials and inventory (reuses same execution logic as manual deploy)
+7. Records `lastDeployDate` in-memory (reset on restart); same-day duplicate guard prevents re-running if already deployed today
+
 **Log output:**
-- `[INFO] FRA Scheduler: no schedule times configured` - if neither rolloverTime nor prepareTime in config
-- `[INFO] FRA Scheduler: started with schedule rollover: HH:MM, prepare: HH:MM` - if scheduler starts
+- `[INFO] FRA Scheduler: no schedule times configured` - if none of rolloverTime/prepareTime/deployTime in config
+- `[INFO] FRA Scheduler: started with schedule rollover: HH:MM, prepare: HH:MM, deploy: HH:MM` - if scheduler starts
 
 ### Archive Today Behavior
 
