@@ -1,6 +1,6 @@
 # Firewall Path Tracer — Project Reference (Living Document)
 
-> **Last Updated:** May 2026  
+> **Last Updated:** June 2026  
 > **Purpose:** Single source of truth for understanding the entire system without re-scanning files  
 > **Audience:** Engineers onboarding, maintaining, or extending this codebase
 
@@ -25,7 +25,7 @@
 
 ```
 project2/
-├── server.py              # Primary Python/Flask backend (4328 lines) (ACTIVE)
+├── server.py              # Primary Python/Flask backend (4377 lines) (ACTIVE)
 ├── server.js              # Legacy Node.js/Express backend (DEPRECATED)
 ├── run_server.py          # Launcher script for Python server
 │
@@ -53,7 +53,7 @@ project2/
 │   │   ├── show_version.py           # 5 routes (421 lines)
 │   │   ├── devices.py                # 12 routes + 2 helpers (1814 lines)
 │   │   ├── backups.py                # 14 routes (1072 lines)
-│   │   └── firewall_rules_auto.py    # 26 routes (1241 lines)
+│   │   └── firewall_rules_auto.py    # 29 routes (1306 lines)
 │   └── web/
 │       ├── templates/
 │       │   ├── index.html           # Main SPA template
@@ -110,7 +110,7 @@ project2/
 
 | Path | Purpose | Key Responsibilities |
 |------|---------|---------------------|
-| `server.py` | Core orchestration (4328 lines) | Flask app factory, helpers, blueprint registration, index + catch-all routes |
+| `server.py` | Core orchestration (4377 lines) | Flask app factory, helpers, blueprint registration, index + catch-all routes |
 | `app/api/credentials.py` | 2 credential routes (38 lines) | POST `/api/credentials`, POST `/api/credentials/clear` |
 | `app/api/cancel.py` | 4 cancel routes (56 lines) | POST `/api/*/cancel` for 4 scopes |
 | `app/api/logs.py` | 2 log routes (55 lines) | GET `/api/logs`, GET `/api/logs/<log_id>` |
@@ -118,7 +118,7 @@ project2/
 | `app/api/show_version.py` | 5 show-version routes (421 lines) | CRUD + CSV + inventory for show-version cache |
 | `app/api/devices.py` | 12 device routes + 2 helpers (1836 lines) | Devices, interfaces, collect, ping/tracer/route/nat, failover |
 | `app/api/backups.py` | 14 backup routes (1072 lines) | Jumpbox backups, config files, compare (old + scalable) |
-| `app/api/firewall_rules_auto.py` | 26 FRA routes (1307 lines) | Deploy, configure, audit, scheduler, reports |
+| `app/api/firewall_rules_auto.py` | 29 FRA routes (1306 lines) | Deploy, configure, audit, scheduler, reports |
 | `utils/helpers.py` | Formatting/validation (67 lines) | `clean_command_output`, `prefix_to_netmask`, `is_valid_netmask`, `escape_html_for_server` |
 | `utils/file_helpers.py` | File/device-state/test-log helpers (214 lines) | `parse_inventory_file`, `get_cache_status`, `load/save_device_state`, `get_device_info_from_cache`, `save_test_log` |
 | `parsers/output_parsers.py` | Output parsers (384 lines) | `parse_show_route_output`, `parse_show_ip_output`, `parse_show_version_output`, `parse_fxos_chassis_detail` |
@@ -129,7 +129,7 @@ project2/
 | `app/web/static/js/firewall_backups.js` | Backup comparison (2809 lines) | Archive listing, config file browsing, diff comparison, virtual scrolling |
 | `app/web/static/js/global_rules.js` | ACL generation (733 lines) | Normal/URL rule generation with deduplication |
 | `app/web/static/js/show_version.js` | Version collection (331 lines) | Show version fetch, display, CSV export |
-| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (1895 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
+| `app/web/static/js/firewall_rules_auto.js` | Rules Auto (1863 lines) | Base path, date folders, ensure/prepare/archive/deploy; calls `/api/firewall-rules-auto/*` |
 | `app/web/templates/index.html` | Main UI (1469 lines) | All page sections with DOM IDs |
 | `app/web/static/css/styles.css` | Styling (395 lines) | Dark theme, terminal styles, diff highlighting |
 
@@ -173,7 +173,7 @@ project2/
                                     │ HTTP JSON
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    server.py (Flask 4328 lines)                              │
+│                    server.py (Flask 4377 lines)                              │
 │                                                                             │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
 │  │ Session Management (threading.Lock)                                  │    │
@@ -189,7 +189,7 @@ project2/
 │                                    │                                        │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
 │  │ Blueprint Registration & Dispatch                                  │    │
-│  │  8 blueprints in app/api/ (66 routes total)                        │    │
+│  │  8 blueprints in app/api/ (69 routes total)                        │    │
 │  │  app.register_blueprint(bp) for each                              │    │
 │  └──────────────────────────────────────────────────────────────────────┘    │
 │                                    │                                        │
@@ -333,15 +333,19 @@ Browser Session                    server.py
 | `/api/firewall-rules-auto/prepare` | POST | `{basePath, targetMode, targetDate?}` | `{status, message, filesScanned, rulesAccepted, rulesRejected, devicesWritten, outputFolder, logContent}` | `firewall_rules_auto.js:prepareRules()` — also writes `latest_results.log` with Detailed Stats, appends to `stats.log` with tag `manual_prepare` |
 | `/api/firewall-rules-auto/archive-today` | POST | `{basePath}` | `{status, message, movedFrom, movedTo, recreated: false, errors, logContent}` — `recreated` is always `false` (today's folder is not recreated; run Ensure Folders to recreate) | `firewall_rules_auto.js:archiveToday()` — appends to `stats.log` with tag `manual_archive` and snapshot of `latest_results.log` |
 | `/api/firewall-rules-auto/run-scheduled` | POST | `{basePath?}` | `{status, message, log, logContent}` | Manual test trigger; also exposed as `#fra-run-scheduled-btn` button (`firewall_rules_auto.js:runScheduled()`) — performs rollover + prepare, appends to `stats.log` with tag `manual_run_scheduled` |
+| `/api/firewall-rules-auto/latest-results` | GET | `?basePath` | `{content: "..."}` | `firewall_rules_auto.js:loadLatestResults()` — returns contents of `latest_results.log`; empty string if missing |
 | `/api/firewall-rules-auto/backup-folders` | GET | `?basePath` | `{status, folders: [...]}` | List backup subfolders (`firewall_rules_auto.js:showDisplayResults()`) |
 | `/api/firewall-rules-auto/backup-subfolders` | GET | `?basePath&folder` | `{status, subfolders: [...]}` | List subfolders in backup folder (`firewall_rules_auto.js:onFolderSelected()`) |
 | `/api/firewall-rules-auto/backup-files` | GET | `?basePath&folder&subfolder?` | `{status, files: [...]}` | List .txt/.log files in backup folder or subfolder (`firewall_rules_auto.js:onSubfolderSelected()`) |
 | `/api/firewall-rules-auto/backup-read` | GET | `?basePath&folder&subfolder?&file` | `text/plain` | Read backup log file content (`firewall_rules_auto.js:onFileSelected()`) |
-| `/api/firewall-rules-auto/scheduler-status` | GET | `?basePath` | `{status, schedulerRunning: boolean, rolloverTime, prepareTime, lastRolloverDate, lastPrepareDate}` | Get scheduler runtime status for UI badges (`firewall_rules_auto.js:updateScheduleBadges()`) |
+| `/api/firewall-rules-auto/scheduler-status` | GET | `?basePath` | `{schedulerRunning: boolean, rolloverTime, prepareTime, deployTime, lastRolloverDate, lastPrepareDate, lastDeployDate}` | Get scheduler runtime status for UI badges (`firewall_rules_auto.js:updateScheduleBadges()`) |
 | `/api/firewall-rules-auto/base-status` | GET | `?basePath` | `{status, messages, missingFolders}` | Check core folder existence under normalized base path (`firewall_rules_auto.js:updateBaseStatusBadge()`) |
 | `/api/firewall-rules-auto/deploy` | POST | `{basePath, username, password, enableSecret}` | `{status, jobId}` | `firewall_rules_auto.js:deployRules()` — starts async deploy; credentials never stored; returns jobId for polling; writes `started` line to `DeployAuthLogs.log` |
 | `/api/firewall-rules-auto/deploy/status` | GET | `?jobId&tabInstanceId=deploy` | `{status, currentDevice, totalDevices, deviceResults}` | Polled by `firewall_rules_auto.js` to update Deploy Terminal |
 | `/api/firewall-rules-auto/deploy/cancel` | POST | `{tabInstanceId}` | `{cancelStatus}` | `firewall_rules_auto.js:stopDeploy()` — cancels running deploy |
+| `/api/firewall-rules-auto/deploy/credentials` | POST | `{username, password, enableSecret}` | `{status, message}` | `firewall_rules_auto.js:saveDeployCredentials()` — encrypts and stores deploy credentials via Fernet |
+| `/api/firewall-rules-auto/deploy/credentials` | DELETE | - | `{status, message}` | `firewall_rules_auto.js:clearDeployCredentials()` — removes stored encrypted credentials |
+| `/api/firewall-rules-auto/deploy/credentials` | GET | - | `{status, hasCredentials, savedAt}` | `firewall_rules_auto.js:checkDeployCredentials()` — returns credential existence status (never exposes secrets) |
 | `/api/firewall-rules-auto/deploy/latest-results` | GET | `?basePath` | `{content: "..."}` | `firewall_rules_auto.js:loadDeployLatestResults()` — returns contents of `latest_deploy_results.log`; empty string if missing |
 | `/api/firewall-rules-auto/audit-index/stats` | GET | `?basePath` | `{status, totalEntries, byCategory, lastIndexedAt, retentionDays}` | Index statistics for the audit index view (`firewall_rules_auto.js:startAuditPoll()`) |
 | `/api/firewall-rules-auto/audit-index/entries` | GET | `?basePath&page&pageSize&category&device&search&dateFrom&dateTo` | `{status, entries: [...], totalCount, page, pageSize, totalPages}` | Paginated, filtered audit log entries query |
@@ -1001,7 +1005,7 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 
 ### 6.1 server.py (Python/Flask Backend)
 
-**File:** `server.py` (4328 lines)
+**File:** `server.py` (4377 lines)
 
 #### Blueprint Registration
 
@@ -1016,9 +1020,9 @@ CREATE TABLE IF NOT EXISTS audit_log_entries (
 | `app.api.show_version` | 421 | 5 |
 | `app.api.devices` | 1,836 | 12 + 2 helpers |
 | `app.api.backups` | 1,072 | 14 |
-| `app.api.firewall_rules_auto` | 1,307 | 26 |
+| `app.api.firewall_rules_auto` | 1,306 | 29 |
 
-All 66 API route functions were extracted from `server.py`. Only `@app.route("/")` (index) and `@app.route("/<path:path>")` (catch-all) remain directly in `server.py`. Blueprints use lazy imports (`from server import ...`) inside function bodies to avoid circular imports.
+All 69 API route functions were extracted from `server.py`. Only `@app.route("/")` (index) and `@app.route("/<path:path>")` (catch-all) remain directly in `server.py`. Blueprints use lazy imports (`from server import ...`) inside function bodies to avoid circular imports.
 
 #### Imports from Extracted Modules
 
@@ -1040,17 +1044,18 @@ All 66 API route functions were extracted from `server.py`. Only `@app.route("/"
 | 59-67 | Blueprint imports | `from app.api.* import bp` for all 8 blueprints |
 | 69-98 | Flask app init | Path definitions, directory creation, `app = Flask(__name__)` |
 | 100-108 | Blueprint registration | `app.register_blueprint()` for all 8 blueprints |
-| 111-124 | Secret Key | `get_secret_key()`, `app.secret_key = ...` |
-| 126-155 | Classes & globals | App config, `CredentialError`, `SESSION_CREDS`, `JOBS_REGISTRY`, locks, TTL constants |
-| 159-284 | Job management | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `set_job_resources()`, `cancel_job()`, `remove_job()`, `check_job_canceled()` |
-| 289-370 | Session/Credential management | `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
-| 372-533 | Index building | `build_interface_index()` (global `INTERFACE_INDEX`), `build_route_index()` (global `ROUTE_INDEX`) |
+| 111-132 | Secret Key | `get_secret_key()`, `app.secret_key = ...` |
+| 134-157 | Session config & globals | `SESSION_COOKIE_*` settings, `CredentialError`, `SESSION_CREDS`, `JOBS_REGISTRY`, locks, TTL constants |
+| 159-277 | Job management | `_force_close_job()`, `register_job()`, `get_job()`, `update_job_status()`, `set_job_resources()`, `cancel_job()`, `remove_job()`, `check_job_canceled()` |
+| 280-288 | Global index variables | `INTERFACE_INDEX`, `ROUTE_INDEX`, associated locks |
+| 291-370 | Session/Credential management | `get_or_create_session_id()`, `get_session_creds_required()`, `get_session_creds_for_device_type()` |
+| 377-530 | Index building | `build_interface_index()` (global `INTERFACE_INDEX`), `build_route_index()` (global `ROUTE_INDEX`) |
 | 535-878 | Auto-selection logic | `find_firewall_for_ip_route()`, `find_firewall_for_ip_server()` |
-| 880-951 | Flask routes | `@app.route("/")` index (SPA shell); `@app.route("/<path:path>")` catch-all |
-| 957-3948 | FRA logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (~500+ lines), deploy subsystem, backup prepare/rollover, scheduled rollover |
-| 3949-3970 | Last-date readers | `_fra_get_last_rollover_date()`, `_fra_get_last_prepare_date()` |
-| 3971-4040 | FRA scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick, checks rollover+prepare times) |
-| 4041-4063 | Scheduler starter + main | `_start_scheduler()` + `main()` — builds index, initializes audit DB, starts scheduler, initial scan, runs Flask |
+| 882-949 | Flask routes | `@app.route("/")` index (SPA shell); `@app.route("/<path:path>")` catch-all |
+| 955-4377 | FRA logic | Config load/save, audit index (SQLite), stats log parsing, Excel report generation (~500+ lines), deploy subsystem, backup prepare/rollover, scheduled rollover |
+| 4144-4175 | Last-date readers | `_fra_get_last_rollover_date()`, `_fra_get_last_prepare_date()`, `_fra_get_last_deploy_date()` |
+| 4177-4313 | FRA scheduler | `_fra_scheduler_loop()` (daemon thread, 60s tick, checks rollover+prepare+deploy times) |
+| 4314-4377 | Scheduler starter + main | `_start_scheduler()` + `main()` — builds index, initializes audit DB, starts scheduler, initial scan, runs Flask |
 
 ### 6.2 Blueprint Modules (`app/api/`)
 
@@ -1091,8 +1096,8 @@ All blueprints follow the same pattern:
 #### 6.2.7 `app/api/backups.py` (1072 lines, 14 routes)
 - Jumpbox backup listing, config file browsing, config viewing, inline compare + scalable compare job
 
-#### 6.2.8 `app/api/firewall_rules_auto.py` (1241 lines, 26 routes)
-- Configure, config, create-date-folders, ensure-folders, date-folders, prepare, archive-today, run-scheduled, backup-folders/subfolders/files/read, deploy/status/cancel/latest-results, audit-index/stats/entries/scan/devices/categories, report/scan-stats/download
+#### 6.2.8 `app/api/firewall_rules_auto.py` (1306 lines, 29 routes)
+- Configure, config, create-date-folders, ensure-folders, date-folders, prepare, archive-today, run-scheduled, latest-results, backup-folders/subfolders/files/read, deploy/status/cancel/latest-results, deploy/credentials (POST/DELETE/GET), audit-index/stats/entries/scan/devices/categories, report/scan-stats/download
 
 ### 6.3 app/web/templates/index.html
 
@@ -1112,7 +1117,7 @@ All blueprints follow the same pattern:
 | Normal Rules | `#normal-rules-source-list`, `#normal-rules-dest-list`, `#normal-rules-port-list`, `#normal-rules-line-items`, `#normal-rules-output`, `#generate-normal-rules`, `#dedupe-normal-rules` | Source/dest/port inputs, line items, output |
 | URL Rules | `#url-rules-source-list`, `#url-rules-dest-list`, `#url-rules-port-list`, `#url-rules-line-items`, `#url-rules-output`, `#generate-url-rules`, `#dedupe-url-rules` | URL-based ACL generation |
 | **Firewall Rules Auto Section** | `#firewall-rules-auto-section` | Local filesystem rule preparation (`#fra-*`) |
-| Base / schedule | `#fra-base-path`, `#fra-base-path-display`, `#fra-base-status-badge`, `#fra-rollover-status-badge`, `#fra-schedule-time`, `#fra-set-rollover-btn`, `#fra-unset-rollover-btn`, `#fra-prepare-status-badge`, `#fra-prepare-time`, `#fra-set-prepare-btn`, `#fra-unset-prepare-btn`, `#fra-prepare-target-mode`, `#fra-scheduled-target-display`, `#fra-save-default-btn` | Saved path banner, base status badge, schedule status badges, prepare target mode |
+| Base / schedule | `#fra-base-path`, `#fra-base-path-display`, `#fra-base-status-badge`, `#fra-rollover-status-badge`, `#fra-schedule-time`, `#fra-set-rollover-btn`, `#fra-unset-rollover-btn`, `#fra-prepare-status-badge`, `#fra-prepare-time`, `#fra-set-prepare-btn`, `#fra-unset-prepare-btn`, `#fra-prepare-target-mode`, `#fra-scheduled-target-display`, `#fra-deploy-time`, `#fra-set-deploy-btn`, `#fra-unset-deploy-btn`, `#fra-deploy-schedule-badge`, `#fra-save-default-btn` | Saved path banner, base status badge, schedule status badges, prepare target mode |
 | Date folders / actions | `#fra-date-folder`, `#fra-ensure-folders-btn`, `#fra-prepare-btn`, `#fra-archive-today-btn`, `#fra-create-dates-btn`, `#fra-refresh-dates-btn`, `#fra-manual-target-mode`, `#fra-custom-date-container`, `#fra-custom-date-select` | Select `YYYYMMDD`, ensure, prepare, archive today, create 6 folders, refresh list, manual target mode, custom date selection |
 | Results | `#fra-status`, `#fra-files-scanned`, `#fra-rules-accepted`, `#fra-rules-rejected`, `#fra-devices-written`, `#fra-output-folder`, `#fra-results-content` | Status alert, counts, log output |
 | Display results | `#fra-display-results-btn`, `#fra-display-results-ui`, `#fra-display-back-btn`, `#fra-folder-search`, `#fra-folder-select`, `#fra-subfolder-select`, `#fra-file-select`, `#fra-clear-results-btn` | Log viewer with folder search, folder picker, subfolder picker, file picker (.txt/.log), back navigation (4-step), clear terminal button |
@@ -1426,8 +1431,17 @@ const INITIAL_RENDER_SIZE = 3000;     // Initial render count
 | `showReportStatus(msg, isError)` | Show report status alert in `#fra-report-status` |
 | `showReportSkipped(count)` | Show malformed line count in `#fra-report-skipped` |
 | `loadStatsInfo()` | GET `/api/firewall-rules-auto/report/scan-stats`, update date min/max, enable/disable metric checkboxes based on available data, show stats summary in `#fra-report-stats-status` |
+| `saveDeployCredentials()` | POST `/api/firewall-rules-auto/deploy/credentials` with username/password/enableSecret; shows modal status feedback |
+| `clearDeployCredentials()` | DELETE `/api/firewall-rules-auto/deploy/credentials`; clears stored encrypted credentials |
+| `checkDeployCredentials()` | GET `/api/firewall-rules-auto/deploy/credentials`; updates `#fra-deploy-creds-status` with credential presence and save timestamp |
+| `deployRules()` | POST `/api/firewall-rules-auto/deploy`; starts async deploy; returns jobId for status polling; renders deploy terminal output |
+| `stopDeploy()` | POST `/api/firewall-rules-auto/deploy/cancel`; cancels running deploy with `tabInstanceId` |
+| `loadDeployLatestResults()` | GET `/api/firewall-rules-auto/deploy/latest-results`; displays deploy results in results area |
+| `setDeployTime()` | POST deployTime via `/configure` |
+| `unsetDeployTime()` | POST deployTime: null via `/configure` |
+| `loadLatestResults()` | GET `/api/firewall-rules-auto/latest-results`; displays prepare results content |
 
-**UI Elements:** `#fra-base-path` (input), `#fra-base-status-badge`, `#fra-rollover-status-badge`, `#fra-schedule-time` (time input), `#fra-prepare-status-badge`, `#fra-prepare-time` (time input), `#fra-date-folder` (select), `#fra-status` (alert).
+**UI Elements:** `#fra-base-path` (input), `#fra-base-status-badge`, `#fra-rollover-status-badge`, `#fra-schedule-time` (time input), `#fra-prepare-status-badge`, `#fra-prepare-time` (time input), `#fra-deploy-time` (time input), `#fra-deploy-schedule-badge`, `#fra-date-folder` (select), `#fra-status` (alert).
 
 **Audit Index View DOM IDs:** `#fra-view-toggle` (toggle button group), `#fra-view-browse-btn` / `#fra-view-index-btn` (mode buttons), `#fra-view-browse-body` / `#fra-view-index-body` (mode containers), `#fra-index-category` (category filter), `#fra-index-device` (device filter), `#fra-index-date-from` / `#fra-index-date-to` (date range), `#fra-index-search` (free-text search), `#fra-index-filter-btn` (apply filters), `#fra-index-count` (total count), `#fra-index-refresh-btn` (refresh), `#fra-index-scan-btn` (re-scan), `#fra-index-table` / `#fra-index-tbody` (results table), `#fra-index-page-info` (page indicator), `#fra-index-prev-btn` / `#fra-index-next-btn` (pagination).
 
@@ -1864,12 +1878,13 @@ Review this document when:
 | 2026-05-20 | Doc accuracy audit — corrected file counts and line numbers: server.py (~7100→~8300), app.js (~2500→~2584), index.html (~1105→~1241), firewall_rules_auto.js (~350→~1082), styles.css (~390→~333), show_version.js (~285→~326); added missing files to repo tree (FirewallDeploy_inventory.txt, test_myers_diff.html, Firewall_Rules_Auto_User_Guide.md, FRA_REPORTS_LOGVIEWER_REFERENCE.md); updated misc/ directory listing; rewrote server.py Section 6.1 line-number table to match actual code; updated File Inventory Summary with line counts | `docs/PROJECT_REFERENCE.md` | None (doc-only changes) | None |
 | 2026-05-20 | Audit log indexing: added persistent SQLite index for historical prepare_audit.log files under Prepare_Rules/Backup; 5 new API endpoints (audit-index/stats, entries, scan, devices, categories); startup scan + scheduler-tick incremental scan; 180-day configurable retention; enhanced Log Viewer with Audit Index toggle, paginated table (500 rows/page), category/device/date/search filters, auto-refresh polling | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/audit-index/stats`, `/api/firewall-rules-auto/audit-index/entries`, `/api/firewall-rules-auto/audit-index/scan`, `/api/firewall-rules-auto/audit-index/devices`, `/api/firewall-rules-auto/audit-index/categories`, `/api/firewall-rules-auto/configure` (extended), `/api/firewall-rules-auto/config` (extended) | `#fra-view-toggle`, `#fra-view-browse-btn`, `#fra-view-index-btn`, `#fra-view-browse-body`, `#fra-view-index-body`, `#fra-index-category`, `#fra-index-device`, `#fra-index-date-from`, `#fra-index-date-to`, `#fra-index-search`, `#fra-index-filter-btn`, `#fra-index-count`, `#fra-index-refresh-btn`, `#fra-index-scan-btn`, `#fra-index-table`, `#fra-index-tbody`, `#fra-index-page-info`, `#fra-index-prev-btn`, `#fra-index-next-btn` |
 | 2026-05-20 | Report feature: added Excel report generation from stats.log + Deploystats.txt via openpyxl; 7 pre-defined metrics with native Excel charts (Bar/Pie/Line/Doughnut); executive dashboard layout (navy title banner, 4 KPI cards, 2-column chart grid, heatmap, executive insights); 3 sheets (Overview, Chart Formula hidden, Detailed with freeze panes/autofilter); inline config panel with dynamic metric checkbox enable/disable via scan-stats endpoint; synchronous download with malformed-line reporting and backend warnings | `server.py`, `app/web/static/js/firewall_rules_auto.js`, `app/web/templates/index.html`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/report/download`, `/api/firewall-rules-auto/report/scan-stats` | `#fra-report-btn`, `#fra-report-config`, `#fra-report-metrics`, `#fra-report-chart-type`, `#fra-report-date-from`, `#fra-report-date-to`, `#fra-report-tag-filter`, `#fra-report-generate-btn`, `#fra-report-status`, `#fra-report-skipped`, `#fra-report-stats-status` |
-| 2026-05-25 | Blueprint refactoring: extracted all 66 API routes from server.py into 8 Flask blueprints under `app/api/`; server.py reduced from ~8945 to ~4103 lines; cleaned up unused imports; all routes validated after each extraction | `server.py`, `app/api/credentials.py`, `app/api/cancel.py`, `app/api/logs.py`, `app/api/global_rules.py`, `app/api/show_version.py`, `app/api/devices.py`, `app/api/backups.py`, `app/api/firewall_rules_auto.py`, `docs/PROJECT_REFERENCE.md` | All 66 API endpoints (unchanged) | None (all UI IDs unchanged) |
+| 2026-05-25 | Blueprint refactoring: extracted all 69 API routes from server.py into 8 Flask blueprints under `app/api/`; server.py reduced from ~8945 to ~4103 lines; cleaned up unused imports; all routes validated after each extraction | `server.py`, `app/api/credentials.py`, `app/api/cancel.py`, `app/api/logs.py`, `app/api/global_rules.py`, `app/api/show_version.py`, `app/api/devices.py`, `app/api/backups.py`, `app/api/firewall_rules_auto.py`, `docs/PROJECT_REFERENCE.md` | All 69 API endpoints (unchanged) | None (all UI IDs unchanged) |
 | 2026-05-25 | Doc accuracy audit — corrected line counts to match actual code: server.py (~4105→~4103), creds (39→38), cancel (57→56), logs (56→55), global_rules (24→23), show_version (422→421), backups (1084→1072), firewall_rules_auto (1244→1241); fixed 1813→1814 for devices; updated Major Regions table with accurate server.py line numbers; added route details to §6.2 cancel/show_version entries | `docs/PROJECT_REFERENCE.md` | None (doc-only changes) | None |
 | 2026-05-26 | Fixed `handle_device_with_reconnect` crash (NoneType jumpbox client passed as device connection); refactored to call `ensure_connection()` and create proper device connection via `connect_to_device_via_jumpbox()` before invoking operation function; added device connection cleanup. Updated §6.14 ssh/client.py docs with accurate signatures, JumpboxSessionManager method table, and corrected line counts (devices.py 1814→1836, client.py ~830→~847). | `ssh/client.py`, `docs/PROJECT_REFERENCE.md` | `/api/failover-check` (batch), `/api/failover-check/selected` (batch), `/api/collect-data` (batch) | None |
 | 2026-05-27 | Deploy fixes: added missing `from netmiko import ConnectHandler, NetmikoAuthenticationException` (NameError crashed daemon thread); synced `device_results` to JOBS_REGISTRY per-device so frontend polls show live progress; added `_fra_backup_prepare_rules()` call at end of `_fra_deploy_worker()` to archive Output/*.txt + deploy/prepare logs to `Backup/<timestamp>/` after each deploy | `server.py`, `docs/PROJECT_REFERENCE.md` | None (same endpoints) | None |
 | 2026-05-26 | Refactored deploy credential encryption: separated from Flask session secret key; created dedicated `data/deploy_credential_key.key` via `Fernet.generate_key()`; added `_fra_get_deploy_fernet()` for new encryption; renamed old Flask-derived function to `_fra_get_legacy_fernet()`; implemented automatic silent migration in `_fra_load_deploy_creds()` — tries new key first, falls back to Flask-derived key, re-encrypts with new key on success; Flask sessions continue using `data/flask_secret_key.txt` unchanged | `server.py`, `docs/PROJECT_REFERENCE.md` | None (all endpoint responses unchanged) | None |
 | 2026-05-26 | Firewall Rules Auto: added scheduled deploy (Phase 4a–4d) — deployTime schedule option with Set/Unset UI; encrypted credential storage via Fernet (cryptography); 3 credential API endpoints (POST/DELETE/GET); deploy guard in scheduler loop; deploy-time input + deploy schedule badge in schedule section; Set User/Unset User buttons + credential modal; deploy creds status display; `_fra_scheduled_deploy()` calls existing deploy worker with synthetic job key; `_start_scheduler()` starts if any of rollover/prepare/deploy time configured; added Prepare_Rules/Output emptiness check before deploy — skips if output folder contains no files | `server.py`, `app/api/firewall_rules_auto.py`, `app/web/templates/index.html`, `app/web/static/js/firewall_rules_auto.js`, `misc/requirements.txt`, `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/configure` (extended), `/api/firewall-rules-auto/config` (extended), `POST /api/firewall-rules-auto/deploy/credentials`, `DELETE /api/firewall-rules-auto/deploy/credentials`, `GET /api/firewall-rules-auto/deploy/credentials`, `/api/firewall-rules-auto/scheduler-status` (extended) | `#fra-deploy-time`, `#fra-set-deploy-btn`, `#fra-unset-deploy-btn`, `#fra-deploy-schedule-badge`, `#fra-deploy-set-user-btn`, `#fra-deploy-unset-user-btn`, `#fra-deploy-creds-status`, `#fra-deploy-creds-modal`, `#fra-deploy-creds-username`, `#fra-deploy-creds-password`, `#fra-deploy-creds-enable-secret`, `#fra-deploy-creds-save-btn`, `#fra-deploy-creds-modal-status` |
+| 2026-06-01 | Doc accuracy audit — corrected server.py line count (4328→4377), firewall_rules_auto.py (1307/1241→1306), firewall_rules_auto.js (1895→1863); corrected route counts (66→69 total, FRA 26→29); added missing §3.6 routes (deploy/credentials x3, latest-results); corrected §6.1 Major Regions table line ranges for 4377-line server.py; added deploy credential functions and DOM IDs to §6.8 | `docs/PROJECT_REFERENCE.md` | `/api/firewall-rules-auto/deploy/credentials` (POST/DELETE/GET), `/api/firewall-rules-auto/latest-results` (GET) | `#fra-deploy-time`, `#fra-set-deploy-btn`, `#fra-unset-deploy-btn`, `#fra-deploy-schedule-badge` |
 
 ### Scheduler Behavior
 
